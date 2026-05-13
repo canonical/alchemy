@@ -228,8 +228,11 @@ impl TuiApp {
 
                     let arc = Arc::clone(agent);
                     tokio::spawn(async move {
+                        // Receiver dropped intentionally — Task 2 will replace this with a real receiver
+                        // that drains tokens into streaming_content for display.
+                        let (token_tx, _token_sink) = tokio::sync::mpsc::channel::<String>(256);
                         let (result, new_history) = arc
-                            .run_turn_with_events(history, user_msg, |_| {}, tool_tx, file_tx)
+                            .run_turn_with_events(history, user_msg, token_tx, tool_tx, file_tx)
                             .await;
                         let _ = result_tx.send((result, new_history));
                     });

@@ -40,7 +40,7 @@ impl Agent {
 
     /// Single-shot run: no conversation history, no streaming events.
     pub async fn run(&self, user_message: String) -> AgentResult {
-        let (result, _) = self.run_internal(vec![], user_message, |_| {}, None, None).await;
+        let (result, _) = self.run_internal(vec![], user_message, None, None, None).await;
         result
     }
 
@@ -52,35 +52,29 @@ impl Agent {
         history: Vec<Message>,
         user_message: String,
     ) -> (AgentResult, Vec<Message>) {
-        self.run_internal(history, user_message, |_| {}, None, None).await
+        self.run_internal(history, user_message, None, None, None).await
     }
 
-    /// Like `run_turn` but also streams ToolEvents and FileEvents for real-time TUI display.
-    pub async fn run_turn_with_events<F>(
+    /// Like `run_turn` but also streams token, ToolEvents, and FileEvents for real-time TUI display.
+    pub async fn run_turn_with_events(
         &self,
         history: Vec<Message>,
         user_message: String,
-        on_token: F,
+        token_tx: tokio::sync::mpsc::Sender<String>,
         tool_tx: tokio::sync::mpsc::Sender<ToolEvent>,
         file_tx: tokio::sync::mpsc::Sender<FileEvent>,
-    ) -> (AgentResult, Vec<Message>)
-    where
-        F: FnMut(&str),
-    {
-        self.run_internal(history, user_message, on_token, Some(tool_tx), Some(file_tx)).await
+    ) -> (AgentResult, Vec<Message>) {
+        self.run_internal(history, user_message, Some(token_tx), Some(tool_tx), Some(file_tx)).await
     }
 
-    async fn run_internal<F>(
+    async fn run_internal(
         &self,
         history: Vec<Message>,
         user_message: String,
-        mut on_token: F,
+        token_tx: Option<tokio::sync::mpsc::Sender<String>>,
         tool_tx: Option<tokio::sync::mpsc::Sender<ToolEvent>>,
         file_tx: Option<tokio::sync::mpsc::Sender<FileEvent>>,
-    ) -> (AgentResult, Vec<Message>)
-    where
-        F: FnMut(&str),
-    {
+    ) -> (AgentResult, Vec<Message>) {
         let mut messages = vec![Message {
             role: MessageRole::System,
             content: Some(self.config.system_prompt.clone()),
@@ -131,7 +125,7 @@ impl Agent {
                     tracing::warn!("LLM error, retrying in {}s (attempt {})", delay_secs, attempt + 1);
                     tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
                 }
-                match stream_with_callback(&*self.provider, request.clone(), &mut on_token).await {
+                match stream_with_callback(&*self.provider, request.clone(), token_tx.as_ref()).await {
                     Ok(r) => {
                         response_opt = Some(r);
                         break;
@@ -323,14 +317,11 @@ fn tool_error_payload(e: &anyhow::Error) -> String {
 
 /// Drive `chat_streaming` to completion while concurrently draining the token channel so the
 /// bounded buffer can't fill and deadlock the provider's `send().await`.
-async fn stream_with_callback<F>(
+async fn stream_with_callback(
     provider: &dyn Provider,
     request: LlmRequest,
-    on_token: &mut F,
-) -> anyhow::Result<crate::types::LlmResponse>
-where
-    F: FnMut(&str),
-{
+    token_tx: Option<&tokio::sync::mpsc::Sender<String>>,
+) -> anyhow::Result<crate::types::LlmResponse> {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(100);
     let mut stream_fut = std::pin::pin!(provider.chat_streaming(request, tx));
 
@@ -339,12 +330,16 @@ where
             biased;
             res = &mut stream_fut => {
                 while let Ok(token) = rx.try_recv() {
-                    on_token(&token);
+                    if let Some(out) = token_tx {
+                        let _ = out.try_send(token);
+                    }
                 }
                 return res;
             }
             Some(token) = rx.recv() => {
-                on_token(&token);
+                if let Some(out) = token_tx {
+                    let _ = out.try_send(token);
+                }
             }
         }
     }
@@ -648,6 +643,19 @@ mod tests {
         assert!(result.error.is_some());
         // Verify all 3 attempts were made (3 POST requests received by wiremock).
         assert_eq!(server.received_requests().await.unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_token_channel_api_compiles() {
+        let provider = MockProvider::new(vec![simple_answer("hi")]);
+        let agent = make_agent(provider);
+        let (token_tx, _token_rx) = tokio::sync::mpsc::channel::<String>(10);
+        let (tool_tx, _) = tokio::sync::mpsc::channel(10);
+        let (file_tx, _) = tokio::sync::mpsc::channel(10);
+        let (result, _) = agent
+            .run_turn_with_events(vec![], "test".into(), token_tx, tool_tx, file_tx)
+            .await;
+        assert!(result.success);
     }
 
     #[tokio::test]

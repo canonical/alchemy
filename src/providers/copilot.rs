@@ -1,18 +1,18 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
-use std::sync::RwLock;
+use std::sync::Mutex;
 use crate::types::{LlmRequest, LlmResponse};
-use crate::providers::Provider;
-use crate::providers::openai::OpenAiProvider;
+use crate::providers::{Provider, openai::OpenAiProvider};
 
-/// GitHub Copilot provider: refreshes session token from PAT
+/// GitHub Copilot provider: exchanges PAT for a short-lived session token.
+/// The token response also carries the actual API endpoint via `endpoints.api`.
 pub struct CopilotProvider {
     pat: String,
     base_url: Option<String>,
-    inner: RwLock<Option<OpenAiProvider>>,
-    session_token: RwLock<Option<String>>,
     client: Client,
+    /// Cached (token, api_endpoint, expires_at_unix_secs)
+    token_cache: Mutex<Option<(String, String, u64)>>,
 }
 
 impl CopilotProvider {
@@ -20,52 +20,67 @@ impl CopilotProvider {
         Self {
             pat,
             base_url,
-            inner: RwLock::new(None),
-            session_token: RwLock::new(None),
             client: Client::new(),
+            token_cache: Mutex::new(None),
         }
     }
 
-    async fn ensure_token(&self) -> Result<String> {
-        // Check if we have a cached token
-        if let Some(ref token) = *self.session_token.read().unwrap() {
-            return Ok(token.clone());
+    /// Returns (session_token, api_base_url), refreshing when within 60s of expiry.
+    async fn ensure_token(&self) -> Result<(String, String)> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        if let Some((token, endpoint, expires_at)) = self.token_cache.lock().unwrap().clone() {
+            if now < expires_at.saturating_sub(60) {
+                return Ok((token, endpoint));
+            }
         }
 
-        // Get session token from GitHub Copilot API
+        tracing::debug!("refreshing GitHub Copilot session token");
         let resp = self
             .client
             .get("https://api.github.com/copilot_internal/v2/token")
             .header("Authorization", format!("token {}", self.pat))
             .header("User-Agent", "alchemy/0.1.0")
+            .header("editor-version", "vscode/1.96.0")
+            .timeout(std::time::Duration::from_secs(10))
             .send()
             .await?;
 
-        let status = resp.status();
-        let text = resp.text().await?;
-
-        if !status.is_success() {
-            anyhow::bail!("Copilot token refresh failed {}: {}", status, text);
+        if !resp.status().is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("Copilot token refresh failed: {}", &body[..body.len().min(200)]);
         }
 
-        let data: serde_json::Value = serde_json::from_str(&text)?;
-        let token = data["token"]
+        let v: serde_json::Value = serde_json::from_str(&resp.text().await?)?;
+
+        let token = v["token"]
             .as_str()
-            .ok_or_else(|| anyhow::anyhow!("No token in Copilot response"))?
+            .ok_or_else(|| anyhow::anyhow!("no token in Copilot response"))?
             .to_string();
 
-        *self.session_token.write().unwrap() = Some(token.clone());
+        let expires_at = v["expires_at"].as_u64().unwrap_or(0);
 
-        Ok(token)
-    }
+        // Use the endpoint the server tells us to use; fall back to the known default.
+        let endpoint = self.base_url.clone().unwrap_or_else(|| {
+            v.get("endpoints")
+                .and_then(|e| e.get("api"))
+                .and_then(|a| a.as_str())
+                .unwrap_or("https://api.githubcopilot.com")
+                .to_string()
+        });
 
-    async fn get_inner(&self) -> Result<OpenAiProvider> {
-        let token = self.ensure_token().await?;
-        let base = self
-            .base_url
-            .clone()
-            .unwrap_or_else(|| "https://api.githubcopilot.com".to_string());
-        Ok(OpenAiProvider::new(token, base, "github-copilot".to_string()))
+        tracing::info!(
+            endpoint = %endpoint,
+            expires_in = expires_at.saturating_sub(now),
+            "Copilot token refreshed"
+        );
+
+        *self.token_cache.lock().unwrap() = Some((token.clone(), endpoint.clone(), expires_at));
+
+        Ok((token, endpoint))
     }
 }
 
@@ -76,12 +91,14 @@ impl Provider for CopilotProvider {
     }
 
     fn default_model(&self) -> &str {
-        "gpt-4.1"
+        "gpt-5-mini"
     }
 
     async fn chat(&self, request: LlmRequest) -> Result<LlmResponse> {
-        let inner = self.get_inner().await?;
-        inner.chat(request).await
+        let (token, endpoint) = self.ensure_token().await?;
+        OpenAiProvider::new(token, endpoint, "github-copilot".to_string())
+            .chat(request)
+            .await
     }
 
     async fn chat_streaming(
@@ -89,7 +106,9 @@ impl Provider for CopilotProvider {
         request: LlmRequest,
         tx: tokio::sync::mpsc::Sender<String>,
     ) -> Result<LlmResponse> {
-        let inner = self.get_inner().await?;
-        inner.chat_streaming(request, tx).await
+        let (token, endpoint) = self.ensure_token().await?;
+        OpenAiProvider::new(token, endpoint, "github-copilot".to_string())
+            .chat_streaming(request, tx)
+            .await
     }
 }

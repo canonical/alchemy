@@ -93,11 +93,13 @@ impl Provider for OpenAiProvider {
         let body = self.build_request_body(&request, false);
         let url = format!("{}/chat/completions", self.base_url);
 
-        let mut req_builder = self.client.post(&url)
-            .json(&body);
+        let mut req_builder = self.client.post(&url).json(&body);
 
         if !self.api_key.is_empty() {
             req_builder = req_builder.header("Authorization", format!("Bearer {}", self.api_key));
+        }
+        if self.variant == "github-copilot" {
+            req_builder = req_builder.header("editor-version", "vscode/1.96.0");
         }
 
         let resp = req_builder.send().await?;
@@ -120,11 +122,13 @@ impl Provider for OpenAiProvider {
         let body = self.build_request_body(&request, true);
         let url = format!("{}/chat/completions", self.base_url);
 
-        let mut req_builder = self.client.post(&url)
-            .json(&body);
+        let mut req_builder = self.client.post(&url).json(&body);
 
         if !self.api_key.is_empty() {
             req_builder = req_builder.header("Authorization", format!("Bearer {}", self.api_key));
+        }
+        if self.variant == "github-copilot" {
+            req_builder = req_builder.header("editor-version", "vscode/1.96.0");
         }
 
         let resp = req_builder.send().await?;

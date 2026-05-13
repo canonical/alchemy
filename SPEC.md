@@ -148,7 +148,7 @@ Default models per provider:
 | Provider | Default model |
 |----------|---------------|
 | `openai` | `gpt-4o-mini` |
-| `github-copilot` | `gpt-4.1` |
+| `github-copilot` | `gpt-5-mini` |
 | `gemini` | `gemini-2.0-flash` |
 | `openrouter` | `gpt-4o-mini` |
 | `anthropic` | `claude-3-5-haiku-latest` |

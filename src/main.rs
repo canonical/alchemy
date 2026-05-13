@@ -96,14 +96,35 @@ async fn main() {
 }
 
 async fn run() -> i32 {
-    // Init logging
     let log_level = std::env::var("ALCHEMY_LOG_LEVEL").unwrap_or_else(|_| "warn".to_string());
-    tracing_subscriber::fmt()
-        .with_env_filter(&log_level)
-        .with_writer(std::io::stderr)
-        .init();
-
     let cli = Cli::parse();
+
+    // In TUI mode write logs to a file so they don't corrupt the terminal display.
+    // ALCHEMY_LOG_FILE overrides the default path (~/.alchemy/debug.log).
+    let is_tui = matches!(cli.command, Some(Commands::Tui { .. }));
+    if is_tui {
+        let log_path = std::env::var("ALCHEMY_LOG_FILE")
+            .unwrap_or_else(|_| dirs_path("debug.log"));
+        if let Ok(file) = std::fs::OpenOptions::new()
+            .create(true).append(true).open(&log_path)
+        {
+            tracing_subscriber::fmt()
+                .with_env_filter(&log_level)
+                .with_writer(std::sync::Mutex::new(file))
+                .with_ansi(false)
+                .init();
+        } else {
+            tracing_subscriber::fmt()
+                .with_env_filter(&log_level)
+                .with_writer(std::io::sink)
+                .init();
+        }
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(&log_level)
+            .with_writer(std::io::stderr)
+            .init();
+    }
 
     match cli.command {
         Some(Commands::Tui { session, session_dir, system, max_steps, timeout }) => {

@@ -29,7 +29,7 @@ mod tests {
         };
         let json = format_json(&output);
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(v["success"].as_bool().unwrap(), true);
+        assert!(v["success"].as_bool().unwrap());
         assert_eq!(v["answer"].as_str().unwrap(), "All tests passed.");
         assert_eq!(v["steps"].as_u64().unwrap(), 3);
         assert!(v["error"].is_null());
@@ -46,7 +46,7 @@ mod tests {
         };
         let json = format_json(&output);
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(v["success"].as_bool().unwrap(), false);
+        assert!(!v["success"].as_bool().unwrap());
         assert!(v["answer"].is_null());
         assert_eq!(v["error"].as_str().unwrap(), "Max steps exceeded");
     }

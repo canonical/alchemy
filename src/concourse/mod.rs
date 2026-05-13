@@ -8,18 +8,22 @@ use crate::agent::{Agent, AgentConfig};
 use crate::tools::ToolRegistry;
 use crate::providers;
 
+#[allow(dead_code)]
 pub async fn run_check(input: ConcourseCheckInput) -> Result<Vec<ConcourseVersion>> {
     check::run(input).await
 }
 
+#[allow(dead_code)]
 pub async fn run_in(input: ConcourseInInput, dest_dir: &str) -> Result<ConcourseInOutput> {
     in_cmd::run(input, dest_dir).await
 }
 
+#[allow(dead_code)]
 pub async fn run_out(input: ConcourseOutInput, source_dir: &str) -> Result<ConcourseOutOutput> {
     out::run(input, source_dir).await
 }
 
+#[allow(dead_code)]
 pub(crate) fn create_agent_from_source(
     source: &ConcourseSource,
     prompt_override: Option<&str>,

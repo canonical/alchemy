@@ -12,7 +12,7 @@ Alchemy is a cross-platform CI/CD AI agent written in Rust. Single static binary
 cargo build --release        # produces single static binary
 cargo test                   # run all tests
 cargo test <test_name>       # run a single test
-cargo clippy -- -D warnings  # lint
+cargo clippy --all-targets -- -D warnings  # lint (covers tests too)
 ALCHEMY_E2E=1 cargo test     # include E2E tests (requires real LLM API key)
 ```
 

@@ -14,7 +14,9 @@ pub struct RagPipeline {
 }
 
 pub struct RagConfig {
+    #[allow(dead_code)]
     pub embed_provider: String,
+    #[allow(dead_code)]
     pub embed_model: String,
     pub chunk_size: usize,
     pub chunk_overlap: usize,
@@ -54,13 +56,11 @@ impl RagPipeline {
         let full_pattern = format!("{}/{}", path.display(), pattern);
         let mut total = 0;
 
-        for entry in glob::glob(&full_pattern)? {
-            if let Ok(file_path) = entry {
-                if file_path.is_file() {
-                    match self.index_file(&file_path).await {
-                        Ok(n) => total += n,
-                        Err(e) => tracing::warn!("Failed to index {}: {}", file_path.display(), e),
-                    }
+        for entry in glob::glob(&full_pattern)?.flatten() {
+            if entry.is_file() {
+                match self.index_file(&entry).await {
+                    Ok(n) => total += n,
+                    Err(e) => tracing::warn!("Failed to index {}: {}", entry.display(), e),
                 }
             }
         }

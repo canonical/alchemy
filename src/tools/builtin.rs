@@ -262,7 +262,7 @@ mod tests {
         let result = execute("read_file", r#"{"path": "Cargo.toml"}"#, 30).await.unwrap();
         let v: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert!(v["content"].as_str().unwrap().contains("[package]"));
-        assert_eq!(v["truncated"].as_bool().unwrap(), false);
+        assert!(!v["truncated"].as_bool().unwrap());
     }
 
     #[tokio::test]
@@ -273,7 +273,7 @@ mod tests {
 
         let result = execute("write_file", &format!(r#"{{"path": "{}", "content": "hello"}}"#, path_str), 30).await.unwrap();
         let v: serde_json::Value = serde_json::from_str(&result).unwrap();
-        assert_eq!(v["ok"].as_bool().unwrap(), true);
+        assert!(v["ok"].as_bool().unwrap());
         assert_eq!(v["bytes_written"].as_u64().unwrap(), 5);
 
         let result = execute("read_file", &format!(r#"{{"path": "{}"}}"#, path_str), 30).await.unwrap();
@@ -295,14 +295,14 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert!(v["stdout"].as_str().unwrap().contains("hello"));
         assert_eq!(v["exit_code"].as_i64().unwrap(), 0);
-        assert_eq!(v["timed_out"].as_bool().unwrap(), false);
+        assert!(!v["timed_out"].as_bool().unwrap());
     }
 
     #[tokio::test]
     async fn test_execute_cmd_timeout() {
         let result = execute("execute_cmd", r#"{"cmd": "sleep 10", "timeout_secs": 1}"#, 30).await.unwrap();
         let v: serde_json::Value = serde_json::from_str(&result).unwrap();
-        assert_eq!(v["timed_out"].as_bool().unwrap(), true);
+        assert!(v["timed_out"].as_bool().unwrap());
     }
 
     #[tokio::test]
@@ -320,6 +320,6 @@ mod tests {
 
         let result = execute("write_file", &format!(r#"{{"path": "{}", "content": "nested"}}"#, path_str), 30).await.unwrap();
         let v: serde_json::Value = serde_json::from_str(&result).unwrap();
-        assert_eq!(v["ok"].as_bool().unwrap(), true);
+        assert!(v["ok"].as_bool().unwrap());
     }
 }

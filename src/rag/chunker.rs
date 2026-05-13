@@ -131,7 +131,7 @@ mod tests {
     fn test_chunk_markdown() {
         let chunker = Chunker::new(512, 64);
         let content = "# Title\nSome content\n# Another\nMore content";
-        let chunks = chunker.chunk(&content, &PathBuf::from("test.md"));
+        let chunks = chunker.chunk(content, &PathBuf::from("test.md"));
         assert!(!chunks.is_empty());
     }
 

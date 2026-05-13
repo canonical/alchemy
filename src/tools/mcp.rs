@@ -33,7 +33,7 @@ pub struct McpClient {
 }
 
 enum ClientTransport {
-    Stdio(Mutex<StdioConn>),
+    Stdio(Box<Mutex<StdioConn>>),
     Sse(SseConn),
 }
 
@@ -231,12 +231,12 @@ async fn connect_stdio(config: &McpServerConfig) -> Result<McpClient> {
 
     let client = McpClient {
         name: config.name.clone(),
-        transport: ClientTransport::Stdio(Mutex::new(StdioConn {
+        transport: ClientTransport::Stdio(Box::new(Mutex::new(StdioConn {
             stdin,
             stdout: BufReader::new(stdout),
             id: 0,
             _child: child,
-        })),
+        }))),
     };
 
     client

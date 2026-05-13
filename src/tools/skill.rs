@@ -3,7 +3,9 @@ use crate::types::{ToolDefinition, FunctionDefinition, SkillMetadata};
 
 #[derive(Debug, Clone)]
 pub struct SkillTool {
+    #[allow(dead_code)]
     pub skill_name: String,
+    #[allow(dead_code)]
     pub script_name: String,
     pub script_path: std::path::PathBuf,
     pub definition: ToolDefinition,
@@ -15,7 +17,7 @@ pub fn create_skill_tools(skills: &[SkillMetadata]) -> Vec<SkillTool> {
 
     for skill in skills {
         for script in &skill.scripts {
-            let tool_name = format!("skill_{}_{}", skill.name, script.name.replace('.', "_").replace('-', "_"));
+            let tool_name = format!("skill_{}_{}", skill.name, script.name.replace(['.', '-'], "_"));
             let tool = SkillTool {
                 skill_name: skill.name.clone(),
                 script_name: script.name.clone(),

@@ -46,10 +46,10 @@ async fn parse_skill(skill_md: &Path, skill_dir: &Path) -> Result<SkillMetadata>
     let content = tokio::fs::read_to_string(skill_md).await?;
 
     // Parse YAML frontmatter
-    let (name, description) = if content.starts_with("---") {
-        let end = content[3..].find("---").map(|i| i + 3);
+    let (name, description) = if let Some(rest) = content.strip_prefix("---") {
+        let end = rest.find("---");
         if let Some(end_idx) = end {
-            let frontmatter = &content[3..end_idx];
+            let frontmatter = &rest[..end_idx];
             let name = extract_yaml_field(frontmatter, "name")
                 .unwrap_or_else(|| skill_dir.file_name().unwrap().to_string_lossy().to_string());
             let description = extract_yaml_field(frontmatter, "description").unwrap_or_default();
@@ -87,10 +87,11 @@ async fn parse_skill(skill_md: &Path, skill_dir: &Path) -> Result<SkillMetadata>
 }
 
 fn extract_yaml_field(yaml: &str, field: &str) -> Option<String> {
+    let prefix = format!("{}:", field);
     for line in yaml.lines() {
         let line = line.trim();
-        if line.starts_with(&format!("{}:", field)) {
-            let value = line[field.len() + 1..].trim();
+        if let Some(rest) = line.strip_prefix(&prefix) {
+            let value = rest.trim();
             // Remove quotes
             let value = value.trim_matches('"').trim_matches('\'');
             return Some(value.to_string());
@@ -130,9 +131,9 @@ pub async fn build_skill_context(skills: &[SkillMetadata], indices: &[usize]) ->
             let skill_md = skill.path.join("SKILL.md");
             if let Ok(content) = tokio::fs::read_to_string(&skill_md).await {
                 // Strip frontmatter, get body
-                let body = if content.starts_with("---") {
-                    if let Some(end) = content[3..].find("---") {
-                        content[end + 6..].trim().to_string()
+                let body = if let Some(rest) = content.strip_prefix("---") {
+                    if let Some(end) = rest.find("---") {
+                        rest[end + 3..].trim().to_string()
                     } else {
                         content
                     }

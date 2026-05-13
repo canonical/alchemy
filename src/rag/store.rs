@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 pub struct VectorStore {
     conn: Mutex<Connection>,
+    #[allow(dead_code)]
     dimensions: usize,
 }
 
@@ -21,21 +22,21 @@ impl VectorStore {
         }
 
         let conn = Connection::open(&path)?;
-        conn.execute_batch(&format!(
+        conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS chunks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source_path TEXT NOT NULL,
                 content TEXT NOT NULL,
                 chunk_index INTEGER NOT NULL,
-                metadata TEXT DEFAULT '{{}}'
+                metadata TEXT DEFAULT '{}'
             );
             CREATE TABLE IF NOT EXISTS embeddings (
                 chunk_id INTEGER PRIMARY KEY,
                 embedding BLOB NOT NULL,
                 FOREIGN KEY(chunk_id) REFERENCES chunks(id)
             );
-            CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_path);"
-        ))?;
+            CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_path);",
+        )?;
 
         Ok(Self { conn: Mutex::new(conn), dimensions })
     }

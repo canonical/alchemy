@@ -19,6 +19,7 @@ pub trait Provider: Send + Sync {
     /// Single-shot call: delegates to the streaming path with a sink so we don't keep two
     /// near-identical request/response paths per provider. Override only if a provider can't
     /// stream.
+    #[allow(dead_code)]
     async fn chat(&self, request: LlmRequest) -> Result<LlmResponse> {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1024);
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
@@ -26,9 +27,11 @@ pub trait Provider: Send + Sync {
         drain.await.ok();
         result
     }
+    #[allow(dead_code)]
     async fn embed(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>> {
         anyhow::bail!("Embeddings not supported by provider {}", self.name())
     }
+    #[allow(dead_code)]
     fn default_embed_model(&self) -> &str {
         ""
     }

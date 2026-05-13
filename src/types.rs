@@ -63,6 +63,7 @@ pub struct LlmResponse {
     pub content: Option<String>,
     pub tool_calls: Vec<ToolCall>,
     pub usage: Option<Usage>,
+    #[allow(dead_code)]
     pub finish_reason: Option<String>,
 }
 

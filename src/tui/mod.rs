@@ -12,7 +12,7 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::sync::Arc;
-use crate::agent::{Agent, AgentConfig};
+use crate::agent::{Agent, AgentConfig, ToolEvent};
 use crate::providers::Provider;
 use crate::tools::ToolRegistry;
 use crate::types::AgentResult;
@@ -29,8 +29,10 @@ pub struct TuiApp {
     pub model_name: String,
     pub total_tokens: u64,
     pub steps: u32,
-    /// Channel receiving the agent result from the background task.
+    /// Receives the final result from the background agent task.
     pending: Option<tokio::sync::oneshot::Receiver<AgentResult>>,
+    /// Receives real-time tool events from the background agent task.
+    tool_rx: Option<tokio::sync::mpsc::Receiver<ToolEvent>>,
 }
 
 #[derive(Clone)]
@@ -67,6 +69,7 @@ impl TuiApp {
             total_tokens: 0,
             steps: 0,
             pending: None,
+            tool_rx: None,
         }
     }
 
@@ -95,11 +98,35 @@ impl TuiApp {
         let agent = Arc::new(Agent::new(config, provider, registry));
 
         loop {
-            // Check if a background agent task completed.
+            // Drain real-time tool events from the background task.
+            if let Some(ref mut rx) = self.tool_rx {
+                while let Ok(event) = rx.try_recv() {
+                    match event {
+                        ToolEvent::Started { name } => {
+                            self.tools_log.push(ToolLogEntry {
+                                name,
+                                status: "⏳".into(),
+                                duration_ms: 0,
+                            });
+                        }
+                        ToolEvent::Finished { name, duration_ms } => {
+                            if let Some(entry) =
+                                self.tools_log.iter_mut().rev().find(|e| e.name == name && e.status == "⏳")
+                            {
+                                entry.status = "✓".into();
+                                entry.duration_ms = duration_ms;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Check if the background agent task completed.
             if let Some(ref mut rx) = self.pending {
                 if let Ok(result) = rx.try_recv() {
                     self.agent_busy = false;
                     self.pending = None;
+                    self.tool_rx = None;
                     self.steps += result.steps;
 
                     let answer = result.answer.unwrap_or_else(|| {
@@ -166,14 +193,18 @@ impl TuiApp {
                     self.messages
                         .push(TuiMessage { role: "user".into(), content: user_msg.clone() });
 
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-                    self.pending = Some(rx);
+                    self.tools_log.clear();
                     self.agent_busy = true;
+
+                    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+                    let (tool_tx, tool_rx) = tokio::sync::mpsc::channel::<ToolEvent>(64);
+                    self.pending = Some(result_rx);
+                    self.tool_rx = Some(tool_rx);
 
                     let arc = Arc::clone(agent);
                     tokio::spawn(async move {
-                        let result = arc.run(user_msg).await;
-                        let _ = tx.send(result);
+                        let result = arc.run_with_events(user_msg, |_| {}, tool_tx).await;
+                        let _ = result_tx.send(result);
                     });
                 }
             }

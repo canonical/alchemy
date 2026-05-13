@@ -17,16 +17,48 @@ pub struct Agent {
     pub registry: ToolRegistry,
 }
 
+/// Real-time tool lifecycle events sent to callers that need live progress (e.g. TUI).
+#[derive(Debug, Clone)]
+pub enum ToolEvent {
+    Started { name: String },
+    Finished { name: String, duration_ms: u64 },
+}
+
 impl Agent {
     pub fn new(config: AgentConfig, provider: Box<dyn Provider>, registry: ToolRegistry) -> Self {
         Self { config, provider, registry }
     }
 
     pub async fn run(&self, user_message: String) -> AgentResult {
-        self.run_with_callback(user_message, |_| {}).await
+        self.run_internal(user_message, |_| {}, None).await
     }
 
-    pub async fn run_with_callback<F>(&self, user_message: String, mut on_token: F) -> AgentResult
+    pub async fn run_with_callback<F>(&self, user_message: String, on_token: F) -> AgentResult
+    where
+        F: FnMut(&str),
+    {
+        self.run_internal(user_message, on_token, None).await
+    }
+
+    /// Like `run` but also streams `ToolEvent`s for real-time display.
+    pub async fn run_with_events<F>(
+        &self,
+        user_message: String,
+        on_token: F,
+        tool_tx: tokio::sync::mpsc::Sender<ToolEvent>,
+    ) -> AgentResult
+    where
+        F: FnMut(&str),
+    {
+        self.run_internal(user_message, on_token, Some(tool_tx)).await
+    }
+
+    async fn run_internal<F>(
+        &self,
+        user_message: String,
+        mut on_token: F,
+        tool_tx: Option<tokio::sync::mpsc::Sender<ToolEvent>>,
+    ) -> AgentResult
     where
         F: FnMut(&str),
     {
@@ -60,8 +92,6 @@ impl Agent {
             }
 
             steps += 1;
-
-            // Context compaction at 85% of context window
             self.compact_context(&mut messages);
 
             let request = LlmRequest {
@@ -71,11 +101,9 @@ impl Agent {
                 temperature: None,
             };
 
-            // Use streaming
             let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(100);
             let response = self.provider.chat_streaming(request, tx).await;
 
-            // Drain any remaining tokens
             while let Ok(token) = rx.try_recv() {
                 on_token(&token);
             }
@@ -93,7 +121,6 @@ impl Agent {
                 }
             };
 
-            // No tool calls = final answer
             if response.tool_calls.is_empty() {
                 return AgentResult {
                     answer: response.content,
@@ -104,7 +131,6 @@ impl Agent {
                 };
             }
 
-            // Add assistant message with tool calls
             messages.push(Message {
                 role: MessageRole::Assistant,
                 content: response.content.clone(),
@@ -112,25 +138,42 @@ impl Agent {
                 tool_call_id: None,
             });
 
-            // Execute tool calls (parallel for safe tools, sequential otherwise)
-            let (parallel, sequential): (Vec<_>, Vec<_>) = response.tool_calls.iter()
+            let (parallel, sequential): (Vec<_>, Vec<_>) = response
+                .tool_calls
+                .iter()
                 .partition(|tc| ToolRegistry::is_parallel_safe(&tc.function.name));
 
-            // Execute parallel tools concurrently
+            // Parallel tools
             let parallel_results: Vec<(String, String)> = if !parallel.is_empty() {
-                let futs: Vec<_> = parallel.iter().map(|tc| {
-                    let name = tc.function.name.clone();
-                    let id = tc.id.clone();
-                    let args = tc.function.arguments.clone();
-                    let timeout = self.config.timeout_secs;
-                    async move {
-                        let result = match crate::tools::builtin::execute(&name, &args, timeout).await {
-                            Ok(r) => r,
-                            Err(e) => format!("{{\"error\": \"{}\"}}", e),
-                        };
-                        (id, result)
-                    }
-                }).collect();
+                let futs: Vec<_> = parallel
+                    .iter()
+                    .map(|tc| {
+                        let name = tc.function.name.clone();
+                        let id = tc.id.clone();
+                        let args = tc.function.arguments.clone();
+                        let timeout = self.config.timeout_secs;
+                        let tx = tool_tx.clone();
+                        async move {
+                            let start = std::time::Instant::now();
+                            if let Some(ref tx) = tx {
+                                let _ = tx.try_send(ToolEvent::Started { name: name.clone() });
+                            }
+                            let result =
+                                match crate::tools::builtin::execute(&name, &args, timeout).await {
+                                    Ok(r) => r,
+                                    Err(e) => format!("{{\"error\": \"{}\"}}", e),
+                                };
+                            let duration_ms = start.elapsed().as_millis() as u64;
+                            if let Some(ref tx) = tx {
+                                let _ = tx.try_send(ToolEvent::Finished {
+                                    name: name.clone(),
+                                    duration_ms,
+                                });
+                            }
+                            (id, result)
+                        }
+                    })
+                    .collect();
                 futures::future::join_all(futs).await
             } else {
                 Vec::new()
@@ -147,13 +190,22 @@ impl Agent {
                 });
             }
 
-            // Execute sequential tools
+            // Sequential tools
             for tc in sequential {
-                tools_used.insert(tc.function.name.clone());
+                let name = tc.function.name.clone();
+                let start = std::time::Instant::now();
+                if let Some(ref tx) = tool_tx {
+                    let _ = tx.try_send(ToolEvent::Started { name: name.clone() });
+                }
+                tools_used.insert(name.clone());
                 let result = match self.registry.dispatch(tc, self.config.timeout_secs).await {
                     Ok(r) => r,
                     Err(e) => format!("{{\"error\": \"{}\"}}", e),
                 };
+                let duration_ms = start.elapsed().as_millis() as u64;
+                if let Some(ref tx) = tool_tx {
+                    let _ = tx.try_send(ToolEvent::Finished { name, duration_ms });
+                }
                 messages.push(Message {
                     role: MessageRole::Tool,
                     content: Some(result),
@@ -165,17 +217,16 @@ impl Agent {
     }
 
     fn compact_context(&self, messages: &mut Vec<Message>) {
-        // Estimate token count (rough: 4 chars per token)
-        let total_chars: usize = messages.iter()
+        let total_chars: usize = messages
+            .iter()
             .map(|m| m.content.as_ref().map(|c| c.len()).unwrap_or(0) + 50)
             .sum();
         let estimated_tokens = total_chars / 4;
         let threshold = (self.config.context_window as f64 * 0.85) as usize;
 
         if estimated_tokens > threshold {
-            // Keep system prompt (first) + last 6 logical turns
             let system = messages[0].clone();
-            let keep_count = 12.min(messages.len() - 1); // ~6 turns = 12 messages
+            let keep_count = 12.min(messages.len() - 1);
             let tail: Vec<Message> = messages[messages.len() - keep_count..].to_vec();
             messages.clear();
             messages.push(system);

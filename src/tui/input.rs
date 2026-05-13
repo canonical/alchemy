@@ -1,11 +1,13 @@
 // Input handling - key binding definitions
 // Actual handling is in TuiApp::handle_key
 
+#[allow(dead_code)]
 pub struct KeyBinding {
     pub key: &'static str,
     pub description: &'static str,
 }
 
+#[allow(dead_code)]
 pub const KEY_BINDINGS: &[KeyBinding] = &[
     KeyBinding { key: "Enter", description: "Send message" },
     KeyBinding { key: "Shift+Enter", description: "Insert newline" },

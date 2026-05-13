@@ -7,6 +7,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use crate::types::{LlmRequest, LlmResponse};
 
+#[allow(dead_code)]
 #[async_trait]
 pub trait Provider: Send + Sync {
     fn name(&self) -> &str;

@@ -76,3 +76,79 @@ impl ToolRegistry {
         matches!(name, "read_file" | "list_dir" | "fetch_url")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{FunctionCall, ToolCall};
+
+    #[test]
+    fn test_registry_has_builtin_tools() {
+        let registry = ToolRegistry::new();
+        let names: Vec<&str> = registry.definitions.iter()
+            .map(|d| d.function.name.as_str())
+            .collect();
+        assert!(names.contains(&"read_file"));
+        assert!(names.contains(&"write_file"));
+        assert!(names.contains(&"list_dir"));
+        assert!(names.contains(&"execute_cmd"));
+        assert!(names.contains(&"fetch_url"));
+        assert_eq!(registry.definitions.len(), 5);
+    }
+
+    #[test]
+    fn test_parallel_safe() {
+        assert!(ToolRegistry::is_parallel_safe("read_file"));
+        assert!(ToolRegistry::is_parallel_safe("list_dir"));
+        assert!(ToolRegistry::is_parallel_safe("fetch_url"));
+        assert!(!ToolRegistry::is_parallel_safe("write_file"));
+        assert!(!ToolRegistry::is_parallel_safe("execute_cmd"));
+        assert!(!ToolRegistry::is_parallel_safe("mcp_server_tool"));
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_builtin_read_file() {
+        let registry = ToolRegistry::new();
+        let tc = ToolCall {
+            id: "1".to_string(),
+            r#type: "function".to_string(),
+            function: FunctionCall {
+                name: "read_file".to_string(),
+                arguments: r#"{"path": "Cargo.toml"}"#.to_string(),
+            },
+        };
+        let result = registry.dispatch(&tc, 30).await.unwrap();
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert!(v["content"].as_str().unwrap().contains("[package]"));
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_unknown_tool() {
+        let registry = ToolRegistry::new();
+        let tc = ToolCall {
+            id: "1".to_string(),
+            r#type: "function".to_string(),
+            function: FunctionCall {
+                name: "nonexistent_tool".to_string(),
+                arguments: "{}".to_string(),
+            },
+        };
+        let result = registry.dispatch(&tc, 30).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_unknown_mcp_tool() {
+        let registry = ToolRegistry::new();
+        let tc = ToolCall {
+            id: "1".to_string(),
+            r#type: "function".to_string(),
+            function: FunctionCall {
+                name: "mcp_server_tool".to_string(),
+                arguments: "{}".to_string(),
+            },
+        };
+        let result = registry.dispatch(&tc, 30).await;
+        assert!(result.is_err());
+    }
+}

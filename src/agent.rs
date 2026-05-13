@@ -33,13 +33,6 @@ impl Agent {
         self.run_internal(user_message, |_| {}, None).await
     }
 
-    pub async fn run_with_callback<F>(&self, user_message: String, on_token: F) -> AgentResult
-    where
-        F: FnMut(&str),
-    {
-        self.run_internal(user_message, on_token, None).await
-    }
-
     /// Like `run` but also streams `ToolEvent`s for real-time display.
     pub async fn run_with_events<F>(
         &self,

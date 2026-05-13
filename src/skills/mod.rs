@@ -146,3 +146,77 @@ pub async fn build_skill_context(skills: &[SkillMetadata], indices: &[usize]) ->
 
     context
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::SkillMetadata;
+
+    fn make_skill(name: &str, description: &str) -> SkillMetadata {
+        SkillMetadata {
+            name: name.to_string(),
+            description: description.to_string(),
+            path: std::path::PathBuf::from("/tmp/fake"),
+            scripts: vec![],
+        }
+    }
+
+    #[test]
+    fn test_match_skills_by_keywords() {
+        let skills = vec![
+            make_skill("rust-reviewer", "Expert Rust code reviewer. Use when working with Rust projects."),
+            make_skill("security-scanner", "Security vulnerability scanner for checking code security issues."),
+        ];
+
+        // Should match rust-reviewer (2 keywords: "rust", "code")
+        let matched = match_skills(&skills, "Please review my Rust code");
+        assert!(matched.contains(&0));
+
+        // Should match security-scanner
+        let matched = match_skills(&skills, "Check security vulnerabilities in my code");
+        assert!(matched.contains(&1));
+
+        // No match for unrelated prompt
+        let matched = match_skills(&skills, "What is the weather today?");
+        assert!(matched.is_empty());
+    }
+
+    #[test]
+    fn test_match_skills_empty() {
+        let matched = match_skills(&[], "anything");
+        assert!(matched.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_load_skills_nonexistent_dir() {
+        let path = std::path::Path::new("/tmp/nonexistent_skills_dir_12345");
+        let skills = load_skills(path).await;
+        assert!(skills.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_load_skills_with_skill_md() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = dir.path().join("my-skill");
+        tokio::fs::create_dir_all(&skill_dir).await.unwrap();
+        let skill_md = skill_dir.join("SKILL.md");
+        tokio::fs::write(&skill_md, r#"---
+name: my-skill
+description: A test skill for testing purposes.
+---
+
+# My Skill
+Do things."#).await.unwrap();
+
+        let skills = load_skills(dir.path()).await;
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "my-skill");
+        assert!(skills[0].description.contains("test skill"));
+    }
+
+    #[tokio::test]
+    async fn test_build_skill_context_empty() {
+        let ctx = build_skill_context(&[], &[]).await;
+        assert!(ctx.is_empty());
+    }
+}

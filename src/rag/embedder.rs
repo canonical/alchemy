@@ -4,6 +4,7 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait Embedder: Send + Sync {
     async fn embed(&self, text: &str) -> Result<Vec<f32>>;
+    #[allow(dead_code)]
     fn dimensions(&self) -> usize;
 }
 
@@ -19,10 +20,12 @@ impl Embedder for NoopEmbedder {
 }
 
 /// Provider-backed embedder
+#[allow(dead_code)]
 pub struct ProviderEmbedder {
     provider: Box<dyn crate::providers::Provider>,
 }
 
+#[allow(dead_code)]
 impl ProviderEmbedder {
     pub fn new(provider: Box<dyn crate::providers::Provider>) -> Self {
         Self { provider }

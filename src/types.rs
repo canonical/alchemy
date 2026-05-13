@@ -188,4 +188,5 @@ pub struct AgentResult {
     pub tools_used: Vec<String>,
     pub success: bool,
     pub error: Option<String>,
+    pub total_tokens: u64,
 }

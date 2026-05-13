@@ -12,14 +12,15 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::sync::Arc;
-use crate::agent::{Agent, AgentConfig, ToolEvent};
+use crate::agent::{Agent, AgentConfig, FileEvent, ToolEvent};
 use crate::providers::Provider;
 use crate::tools::ToolRegistry;
-use crate::types::AgentResult;
+use crate::types::{AgentResult, Message};
 
 pub struct TuiApp {
     pub session_name: String,
     pub session_dir: String,
+    /// Display messages (role + content) rendered in the conversation panel.
     pub messages: Vec<TuiMessage>,
     pub input: String,
     pub running: bool,
@@ -29,10 +30,14 @@ pub struct TuiApp {
     pub model_name: String,
     pub total_tokens: u64,
     pub steps: u32,
-    /// Receives the final result from the background agent task.
-    pending: Option<tokio::sync::oneshot::Receiver<AgentResult>>,
+    /// Full LLM message history for multi-turn context (no system message).
+    conversation_history: Vec<Message>,
+    /// Receives the final result + updated history from the background agent task.
+    pending: Option<tokio::sync::oneshot::Receiver<(AgentResult, Vec<Message>)>>,
     /// Receives real-time tool events from the background agent task.
     tool_rx: Option<tokio::sync::mpsc::Receiver<ToolEvent>>,
+    /// Receives real-time file events from the background agent task.
+    file_rx: Option<tokio::sync::mpsc::Receiver<FileEvent>>,
 }
 
 #[derive(Clone)]
@@ -68,8 +73,10 @@ impl TuiApp {
             model_name,
             total_tokens: 0,
             steps: 0,
+            conversation_history: Vec::new(),
             pending: None,
             tool_rx: None,
+            file_rx: None,
         }
     }
 
@@ -85,7 +92,7 @@ impl TuiApp {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
-        // Load session history
+        // Load session history (display only; LLM context starts fresh per session).
         let history_path = format!("{}/{}", self.session_dir, self.session_name);
         let _ = tokio::fs::create_dir_all(&history_path).await;
         if let Ok(msgs) =
@@ -94,11 +101,10 @@ impl TuiApp {
             self.messages = msgs;
         }
 
-        // Wrap in Arc so the agent can be moved into spawned tasks.
         let agent = Arc::new(Agent::new(config, provider, registry));
 
         loop {
-            // Drain real-time tool events from the background task.
+            // Drain real-time tool events.
             if let Some(ref mut rx) = self.tool_rx {
                 while let Ok(event) = rx.try_recv() {
                     match event {
@@ -110,8 +116,11 @@ impl TuiApp {
                             });
                         }
                         ToolEvent::Finished { name, duration_ms } => {
-                            if let Some(entry) =
-                                self.tools_log.iter_mut().rev().find(|e| e.name == name && e.status == "⏳")
+                            if let Some(entry) = self
+                                .tools_log
+                                .iter_mut()
+                                .rev()
+                                .find(|e| e.name == name && e.status == "⏳")
                             {
                                 entry.status = "✓".into();
                                 entry.duration_ms = duration_ms;
@@ -121,13 +130,27 @@ impl TuiApp {
                 }
             }
 
+            // Drain real-time file events.
+            if let Some(ref mut rx) = self.file_rx {
+                while let Ok(event) = rx.try_recv() {
+                    let (path, op) = match event {
+                        FileEvent::Read { path } => (path, 'R'),
+                        FileEvent::Write { path } => (path, 'W'),
+                    };
+                    self.files_log.push(FileLogEntry { path, operation: op });
+                }
+            }
+
             // Check if the background agent task completed.
             if let Some(ref mut rx) = self.pending {
-                if let Ok(result) = rx.try_recv() {
+                if let Ok((result, new_history)) = rx.try_recv() {
                     self.agent_busy = false;
                     self.pending = None;
                     self.tool_rx = None;
+                    self.file_rx = None;
                     self.steps += result.steps;
+                    self.total_tokens += result.total_tokens;
+                    self.conversation_history = new_history;
 
                     let answer = result.answer.unwrap_or_else(|| {
                         result.error.unwrap_or_else(|| "No response".to_string())
@@ -168,8 +191,6 @@ impl TuiApp {
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
                 if self.agent_busy {
-                    // Can't cancel in-flight task without a more complex abort handle;
-                    // just mark as no longer busy so the user can send again.
                     self.agent_busy = false;
                     self.pending = None;
                 } else {
@@ -196,15 +217,20 @@ impl TuiApp {
                     self.tools_log.clear();
                     self.agent_busy = true;
 
+                    let history = self.conversation_history.clone();
                     let (result_tx, result_rx) = tokio::sync::oneshot::channel();
                     let (tool_tx, tool_rx) = tokio::sync::mpsc::channel::<ToolEvent>(64);
+                    let (file_tx, file_rx) = tokio::sync::mpsc::channel::<FileEvent>(64);
                     self.pending = Some(result_rx);
                     self.tool_rx = Some(tool_rx);
+                    self.file_rx = Some(file_rx);
 
                     let arc = Arc::clone(agent);
                     tokio::spawn(async move {
-                        let result = arc.run_with_events(user_msg, |_| {}, tool_tx).await;
-                        let _ = result_tx.send(result);
+                        let (result, new_history) = arc
+                            .run_turn_with_events(history, user_msg, |_| {}, tool_tx, file_tx)
+                            .await;
+                        let _ = result_tx.send((result, new_history));
                     });
                 }
             }

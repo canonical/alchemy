@@ -26,9 +26,9 @@ struct Cli {
     #[arg()]
     prompt: Option<String>,
 
-    /// Output format: json, text
-    #[arg(long, default_value = "json")]
-    output: String,
+    /// Output format: json, text [default: json, or ALCHEMY_OUTPUT env var]
+    #[arg(long)]
+    output: Option<String>,
 
     /// System prompt
     #[arg(long)]
@@ -296,7 +296,11 @@ async fn run_pipe(cli: Cli) -> Result<i32> {
         error: result.error.clone(),
     };
 
-    let output_str = match cli.output.as_str() {
+    let output_format = cli.output
+        .or_else(|| std::env::var("ALCHEMY_OUTPUT").ok())
+        .unwrap_or_else(|| "json".to_string());
+
+    let output_str = match output_format.as_str() {
         "text" => output::format_text(&pipe_output),
         _ => output::format_json(&pipe_output),
     };
@@ -444,4 +448,71 @@ fn dirs_path(sub: &str) -> String {
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
     format!("{}/.alchemy/{}", home, sub)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dirs_path() {
+        let path = dirs_path("sessions");
+        assert!(path.ends_with("/.alchemy/sessions"));
+    }
+
+    #[test]
+    fn test_provider_create_unknown_fails() {
+        let result = providers::create_provider("nonexistent", Some("key"), None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_provider_create_ollama_no_key() {
+        // ollama doesn't require an API key
+        let result = providers::create_provider("ollama", None, None);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().name(), "ollama");
+    }
+
+    #[test]
+    fn test_provider_create_openai_missing_key() {
+        let result = providers::create_provider("openai", None, None);
+        assert!(result.is_err());
+        assert!(result.err().unwrap().to_string().contains("ALCHEMY_API_KEY"));
+    }
+
+    #[test]
+    fn test_provider_defaults() {
+        let openai = providers::create_provider("openai", Some("k"), None).unwrap();
+        assert_eq!(openai.default_model(), "gpt-4o-mini");
+
+        let ollama = providers::create_provider("ollama", None, None).unwrap();
+        assert_eq!(ollama.default_model(), "llama3.2");
+    }
+
+    #[test]
+    fn test_mcp_config_parse_empty() {
+        // When no env var or file is set, load_mcp_configs returns empty vec.
+        // We can't test without side effects, but we can test the JSON parsing logic.
+        let json = r#"[{"name":"test","transport":"stdio","cmd":"echo hello"}]"#;
+        let configs: Vec<crate::types::McpServerConfig> =
+            serde_json::from_str(json).expect("parse failed");
+        assert_eq!(configs.len(), 1);
+        assert_eq!(configs[0].name, "test");
+        assert_eq!(configs[0].transport, "stdio");
+    }
+
+    #[test]
+    fn test_mcp_config_file_parse() {
+        let json = r#"{"servers":[{"name":"db","transport":"sse","url":"http://localhost:3001/mcp"}]}"#;
+        let config: crate::types::McpConfigFile =
+            serde_json::from_str(json).expect("parse failed");
+        assert_eq!(config.servers.len(), 1);
+        assert_eq!(config.servers[0].name, "db");
+        assert_eq!(config.servers[0].transport, "sse");
+        assert_eq!(
+            config.servers[0].url.as_deref(),
+            Some("http://localhost:3001/mcp")
+        );
+    }
 }

@@ -100,40 +100,6 @@ impl Provider for AnthropicProvider {
         "claude-3-5-haiku-latest"
     }
 
-    async fn chat(&self, request: LlmRequest) -> Result<LlmResponse> {
-        let (system, messages, tools) = self.convert_request(&request);
-        let url = format!("{}/v1/messages", self.base_url);
-
-        let mut body = serde_json::json!({
-            "model": request.model,
-            "messages": messages,
-            "max_tokens": 4096,
-        });
-        if let Some(s) = system {
-            body["system"] = serde_json::json!(s);
-        }
-        if let Some(t) = tools {
-            body["tools"] = t;
-        }
-
-        let resp = self.client.post(&url)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
-
-        let status = resp.status();
-        let text = resp.text().await?;
-        if !status.is_success() {
-            anyhow::bail!("Anthropic API error {}: {}", status, text);
-        }
-
-        let data: serde_json::Value = serde_json::from_str(&text)?;
-        parse_anthropic_response(&data)
-    }
-
     async fn chat_streaming(
         &self,
         request: LlmRequest,
@@ -260,46 +226,3 @@ impl Provider for AnthropicProvider {
     }
 }
 
-fn parse_anthropic_response(data: &serde_json::Value) -> Result<LlmResponse> {
-    let mut content = String::new();
-    let mut tool_calls = Vec::new();
-
-    if let Some(blocks) = data["content"].as_array() {
-        for block in blocks {
-            match block["type"].as_str() {
-                Some("text") => {
-                    if let Some(text) = block["text"].as_str() {
-                        content.push_str(text);
-                    }
-                }
-                Some("tool_use") => {
-                    tool_calls.push(ToolCall {
-                        id: block["id"].as_str().unwrap_or("").to_string(),
-                        r#type: "function".to_string(),
-                        function: FunctionCall {
-                            name: block["name"].as_str().unwrap_or("").to_string(),
-                            arguments: serde_json::to_string(&block["input"])
-                                .unwrap_or_else(|_| "{}".to_string()),
-                        },
-                    });
-                }
-                _ => {}
-            }
-        }
-    }
-
-    let usage = data.get("usage").and_then(|u| {
-        Some(Usage {
-            prompt_tokens: u["input_tokens"].as_u64()?,
-            completion_tokens: u["output_tokens"].as_u64()?,
-            total_tokens: u["input_tokens"].as_u64()? + u["output_tokens"].as_u64()?,
-        })
-    });
-
-    Ok(LlmResponse {
-        content: if content.is_empty() { None } else { Some(content) },
-        tool_calls,
-        usage,
-        finish_reason: data["stop_reason"].as_str().map(|s| s.to_string()),
-    })
-}

@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use std::sync::Mutex;
 use crate::types::{LlmRequest, LlmResponse};
-use crate::providers::{Provider, openai::OpenAiProvider};
+use crate::providers::{openai::OpenAiProvider, Provider};
 
 /// GitHub Copilot provider: exchanges PAT for a short-lived session token.
 /// The token response also carries the actual API endpoint via `endpoints.api`.
@@ -92,13 +92,6 @@ impl Provider for CopilotProvider {
 
     fn default_model(&self) -> &str {
         "gpt-5-mini"
-    }
-
-    async fn chat(&self, request: LlmRequest) -> Result<LlmResponse> {
-        let (token, endpoint) = self.ensure_token().await?;
-        OpenAiProvider::new(token, endpoint, "github-copilot".to_string())
-            .chat(request)
-            .await
     }
 
     async fn chat_streaming(

@@ -143,13 +143,14 @@ impl TuiApp {
 
             // Check if the background agent task completed.
             if let Some(ref mut rx) = self.pending {
-                if let Ok((result, new_history)) = rx.try_recv() {
+                if let Ok((result, mut new_history)) = rx.try_recv() {
                     self.agent_busy = false;
                     self.pending = None;
                     self.tool_rx = None;
                     self.file_rx = None;
                     self.steps += result.steps;
                     self.total_tokens += result.total_tokens;
+                    agent.compact_history(&mut new_history);
                     self.conversation_history = new_history;
 
                     let answer = result.answer.unwrap_or_else(|| {

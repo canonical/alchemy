@@ -1,7 +1,9 @@
 use crate::providers::Provider;
 use crate::tools::ToolRegistry;
-use crate::types::{AgentResult, LlmRequest, Message, MessageRole};
+use crate::types::{AgentResult, LlmRequest, Message, MessageRole, ToolCall};
 use std::collections::HashSet;
+
+const MAX_LLM_ATTEMPTS: u32 = 3;
 
 pub struct AgentConfig {
     pub model: String,
@@ -44,6 +46,7 @@ impl Agent {
 
     /// Multi-turn run: caller manages history across turns.
     /// Returns (result, updated_history). History excludes the system message.
+    #[cfg(test)]
     pub async fn run_turn(
         &self,
         history: Vec<Message>,
@@ -119,21 +122,17 @@ impl Agent {
                 temperature: None,
             };
 
-            // Retry with exponential backoff: 3 total attempts, 1s then 2s between them.
             let mut last_error: Option<anyhow::Error> = None;
             let mut response_opt = None;
-            for attempt in 0u32..3 {
+            for attempt in 0u32..MAX_LLM_ATTEMPTS {
                 if attempt > 0 {
-                    let delay_secs = [1u64, 2][(attempt - 1) as usize];
+                    // Exponential backoff: 1s, 2s, 4s, ...
+                    let delay_secs = 1u64 << (attempt - 1);
                     tracing::warn!("LLM error, retrying in {}s (attempt {})", delay_secs, attempt + 1);
                     tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
                 }
-                let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(100);
-                match self.provider.chat_streaming(request.clone(), tx).await {
+                match stream_with_callback(&*self.provider, request.clone(), &mut on_token).await {
                     Ok(r) => {
-                        while let Ok(token) = rx.try_recv() {
-                            on_token(&token);
-                        }
                         response_opt = Some(r);
                         break;
                     }
@@ -147,23 +146,23 @@ impl Agent {
             let response = match response_opt {
                 Some(r) => r,
                 None => {
+                    let err = last_error
+                        .map(|e| e.to_string())
+                        .unwrap_or_else(|| "unknown error".to_string());
                     let history = messages[1..].to_vec();
                     return (AgentResult {
                         answer: None,
                         steps,
                         tools_used: tools_used.into_iter().collect(),
                         success: false,
-                        error: Some(format!(
-                            "Provider error after retries: {}",
-                            last_error.unwrap()
-                        )),
+                        error: Some(format!("Provider error after retries: {}", err)),
                         total_tokens,
                     }, history);
                 }
             };
 
             if let Some(ref usage) = response.usage {
-                total_tokens = total_tokens.max(usage.total_tokens);
+                total_tokens += usage.total_tokens;
             }
 
             if response.tool_calls.is_empty() {
@@ -197,34 +196,38 @@ impl Agent {
                 .iter()
                 .partition(|tc| ToolRegistry::is_parallel_safe(&tc.function.name));
 
-            // Parallel tools (read_file, list_dir, fetch_url)
-            let parallel_results: Vec<(String, String)> = if !parallel.is_empty() {
+            let parallel_results: Vec<ToolOutcome> = if !parallel.is_empty() {
                 let futs: Vec<_> = parallel
                     .iter()
                     .map(|tc| {
-                        let name = tc.function.name.clone();
-                        let id = tc.id.clone();
-                        let args = tc.function.arguments.clone();
+                        let tc = (*tc).clone();
                         let timeout = self.config.timeout_secs;
                         let tx = tool_tx.clone();
                         async move {
                             let start = std::time::Instant::now();
                             if let Some(ref tx) = tx {
-                                let _ = tx.try_send(ToolEvent::Started { name: name.clone() });
+                                let _ = tx.try_send(ToolEvent::Started {
+                                    name: tc.function.name.clone(),
+                                });
                             }
-                            let result =
-                                match crate::tools::builtin::execute(&name, &args, timeout).await {
-                                    Ok(r) => r,
-                                    Err(e) => format!("{{\"error\": \"{}\"}}", e),
-                                };
+                            let result = match crate::tools::builtin::execute(
+                                &tc.function.name,
+                                &tc.function.arguments,
+                                timeout,
+                            )
+                            .await
+                            {
+                                Ok(r) => r,
+                                Err(e) => tool_error_payload(&e),
+                            };
                             let duration_ms = start.elapsed().as_millis() as u64;
                             if let Some(ref tx) = tx {
                                 let _ = tx.try_send(ToolEvent::Finished {
-                                    name: name.clone(),
+                                    name: tc.function.name.clone(),
                                     duration_ms,
                                 });
                             }
-                            (id, result)
+                            ToolOutcome { call: tc, result }
                         }
                     })
                     .collect();
@@ -233,19 +236,17 @@ impl Agent {
                 Vec::new()
             };
 
-            for (id, result) in parallel_results {
-                let tc = parallel.iter().find(|t| t.id == id).unwrap();
-                tools_used.insert(tc.function.name.clone());
-                emit_file_event(&file_tx, &tc.function.name, &tc.function.arguments);
+            for outcome in parallel_results {
+                tools_used.insert(outcome.call.function.name.clone());
+                emit_file_event(&file_tx, &outcome.call.function.name, &outcome.call.function.arguments);
                 messages.push(Message {
                     role: MessageRole::Tool,
-                    content: Some(result),
+                    content: Some(outcome.result),
                     tool_calls: None,
-                    tool_call_id: Some(id),
+                    tool_call_id: Some(outcome.call.id),
                 });
             }
 
-            // Sequential tools (write_file, execute_cmd, MCP, skill)
             for tc in sequential {
                 let name = tc.function.name.clone();
                 let start = std::time::Instant::now();
@@ -255,7 +256,7 @@ impl Agent {
                 tools_used.insert(name.clone());
                 let result = match self.registry.dispatch(tc, self.config.timeout_secs).await {
                     Ok(r) => r,
-                    Err(e) => format!("{{\"error\": \"{}\"}}", e),
+                    Err(e) => tool_error_payload(&e),
                 };
                 let duration_ms = start.elapsed().as_millis() as u64;
                 if let Some(ref tx) = tool_tx {
@@ -282,12 +283,69 @@ impl Agent {
 
         if estimated_tokens > threshold {
             let system = messages[0].clone();
-            // Keep last 12 turns (6 user+assistant pairs)
+            // 6 logical turns = 12 messages (user + assistant per turn).
             let keep_count = 12.min(messages.len() - 1);
             let tail: Vec<Message> = messages[messages.len() - keep_count..].to_vec();
             messages.clear();
             messages.push(system);
             messages.extend(tail);
+        }
+    }
+
+    /// Truncate a history vec (no system message) so subsequent turns stay under context.
+    /// Used by the TUI between turns; mirrors the in-loop compaction semantics.
+    pub fn compact_history(&self, history: &mut Vec<Message>) {
+        let total_chars: usize = history
+            .iter()
+            .map(|m| m.content.as_ref().map(|c| c.len()).unwrap_or(0) + 50)
+            .sum();
+        let estimated_tokens = (total_chars + self.config.system_prompt.len() / 4) / 4;
+        let threshold = (self.config.context_window as f64 * 0.85) as usize;
+
+        if estimated_tokens > threshold && history.len() > 12 {
+            let tail_start = history.len() - 12;
+            history.drain(..tail_start);
+        }
+    }
+}
+
+/// Result of one tool call, kept together so we don't have to re-look-up the call.
+struct ToolOutcome {
+    call: ToolCall,
+    result: String,
+}
+
+/// Render a tool error as a valid JSON object. The naive `format!("{{\"error\": ...}}")` breaks
+/// when the error message contains quotes, backslashes, or newlines.
+fn tool_error_payload(e: &anyhow::Error) -> String {
+    serde_json::json!({ "error": e.to_string() }).to_string()
+}
+
+/// Drive `chat_streaming` to completion while concurrently draining the token channel so the
+/// bounded buffer can't fill and deadlock the provider's `send().await`.
+async fn stream_with_callback<F>(
+    provider: &dyn Provider,
+    request: LlmRequest,
+    on_token: &mut F,
+) -> anyhow::Result<crate::types::LlmResponse>
+where
+    F: FnMut(&str),
+{
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(100);
+    let mut stream_fut = std::pin::pin!(provider.chat_streaming(request, tx));
+
+    loop {
+        tokio::select! {
+            biased;
+            res = &mut stream_fut => {
+                while let Ok(token) = rx.try_recv() {
+                    on_token(&token);
+                }
+                return res;
+            }
+            Some(token) = rx.recv() => {
+                on_token(&token);
+            }
         }
     }
 }
@@ -297,20 +355,18 @@ fn emit_file_event(
     tool_name: &str,
     arguments: &str,
 ) {
-    if let Some(ref ftx) = file_tx {
-        if tool_name == "read_file" || tool_name == "write_file" {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(arguments) {
-                if let Some(path) = v["path"].as_str() {
-                    let event = if tool_name == "read_file" {
-                        FileEvent::Read { path: path.to_string() }
-                    } else {
-                        FileEvent::Write { path: path.to_string() }
-                    };
-                    let _ = ftx.try_send(event);
-                }
-            }
-        }
+    let Some(ftx) = file_tx else { return };
+    if tool_name != "read_file" && tool_name != "write_file" {
+        return;
     }
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(arguments) else { return };
+    let Some(path) = v["path"].as_str() else { return };
+    let event = if tool_name == "read_file" {
+        FileEvent::Read { path: path.to_string() }
+    } else {
+        FileEvent::Write { path: path.to_string() }
+    };
+    let _ = ftx.try_send(event);
 }
 
 #[cfg(test)]
@@ -439,7 +495,6 @@ mod tests {
             Err(anyhow::anyhow!("fail 3")),
         ]);
         let agent = make_agent(provider);
-        // Note: this test sleeps 1s+2s=3s due to retry delays — acceptable for CI.
         let result = agent.run("test".to_string()).await;
         assert!(!result.success);
         assert!(result.error.as_deref().unwrap_or("").contains("Provider error after retries"));
@@ -452,7 +507,6 @@ mod tests {
             simple_answer("recovered"),
         ]);
         let agent = make_agent(provider);
-        // Sleeps 1s for the first retry delay.
         let result = agent.run("test".to_string()).await;
         assert!(result.success);
         assert_eq!(result.answer.as_deref(), Some("recovered"));
@@ -588,7 +642,6 @@ mod tests {
             context_window: 128000,
         };
         let agent = Agent::new(config, provider, crate::tools::ToolRegistry::new());
-        // 3 attempts × (0s + 1s + 2s delays) = ~3s total
         let result = agent.run("test".to_string()).await;
 
         assert!(!result.success);

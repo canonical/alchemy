@@ -7,20 +7,28 @@ use anyhow::Result;
 use async_trait::async_trait;
 use crate::types::{LlmRequest, LlmResponse};
 
-#[allow(dead_code)]
 #[async_trait]
 pub trait Provider: Send + Sync {
     fn name(&self) -> &str;
-    async fn chat(&self, request: LlmRequest) -> Result<LlmResponse>;
+    fn default_model(&self) -> &str;
     async fn chat_streaming(
         &self,
         request: LlmRequest,
         tx: tokio::sync::mpsc::Sender<String>,
     ) -> Result<LlmResponse>;
+    /// Single-shot call: delegates to the streaming path with a sink so we don't keep two
+    /// near-identical request/response paths per provider. Override only if a provider can't
+    /// stream.
+    async fn chat(&self, request: LlmRequest) -> Result<LlmResponse> {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1024);
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let result = self.chat_streaming(request, tx).await;
+        drain.await.ok();
+        result
+    }
     async fn embed(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>> {
         anyhow::bail!("Embeddings not supported by provider {}", self.name())
     }
-    fn default_model(&self) -> &str;
     fn default_embed_model(&self) -> &str {
         ""
     }

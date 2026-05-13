@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
-use crate::types::{LlmRequest, LlmResponse, ToolCall, FunctionCall, Usage};
+use crate::types::{LlmRequest, LlmResponse, ToolCall, FunctionCall};
 use crate::providers::Provider;
 
 pub struct OpenAiProvider {
@@ -87,31 +87,6 @@ impl Provider for OpenAiProvider {
             "ollama" => 768,
             _ => 0,
         }
-    }
-
-    async fn chat(&self, request: LlmRequest) -> Result<LlmResponse> {
-        let body = self.build_request_body(&request, false);
-        let url = format!("{}/chat/completions", self.base_url);
-
-        let mut req_builder = self.client.post(&url).json(&body);
-
-        if !self.api_key.is_empty() {
-            req_builder = req_builder.header("Authorization", format!("Bearer {}", self.api_key));
-        }
-        if self.variant == "github-copilot" {
-            req_builder = req_builder.header("editor-version", "vscode/1.96.0");
-        }
-
-        let resp = req_builder.send().await?;
-        let status = resp.status();
-        let text = resp.text().await?;
-
-        if !status.is_success() {
-            anyhow::bail!("OpenAI API error {}: {}", status, text);
-        }
-
-        let data: serde_json::Value = serde_json::from_str(&text)?;
-        parse_openai_response(&data)
     }
 
     async fn chat_streaming(
@@ -270,45 +245,4 @@ struct ToolCallAccumulator {
     id: String,
     name: String,
     arguments: String,
-}
-
-fn parse_openai_response(data: &serde_json::Value) -> Result<LlmResponse> {
-    let choice = data["choices"]
-        .as_array()
-        .and_then(|c| c.first())
-        .ok_or_else(|| anyhow::anyhow!("No choices in response"))?;
-
-    let message = &choice["message"];
-    let content = message["content"].as_str().map(|s| s.to_string());
-    let finish_reason = choice["finish_reason"].as_str().map(|s| s.to_string());
-
-    let tool_calls = if let Some(tcs) = message["tool_calls"].as_array() {
-        tcs.iter()
-            .map(|tc| ToolCall {
-                id: tc["id"].as_str().unwrap_or("").to_string(),
-                r#type: "function".to_string(),
-                function: FunctionCall {
-                    name: tc["function"]["name"].as_str().unwrap_or("").to_string(),
-                    arguments: tc["function"]["arguments"].as_str().unwrap_or("{}").to_string(),
-                },
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
-
-    let usage = data.get("usage").and_then(|u| {
-        Some(Usage {
-            prompt_tokens: u["prompt_tokens"].as_u64()?,
-            completion_tokens: u["completion_tokens"].as_u64()?,
-            total_tokens: u["total_tokens"].as_u64()?,
-        })
-    });
-
-    Ok(LlmResponse {
-        content,
-        tool_calls,
-        usage,
-        finish_reason,
-    })
 }

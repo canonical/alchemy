@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
-use crate::types::{LlmRequest, LlmResponse, ToolCall, FunctionCall, Usage, MessageRole};
+use crate::types::{LlmRequest, LlmResponse, ToolCall, FunctionCall, MessageRole};
 use crate::providers::Provider;
 
 pub struct GeminiProvider {
@@ -120,33 +120,6 @@ impl Provider for GeminiProvider {
         768
     }
 
-    async fn chat(&self, request: LlmRequest) -> Result<LlmResponse> {
-        let (system_instruction, contents) = self.convert_messages(&request);
-        let url = format!(
-            "{}/models/{}:generateContent?key={}",
-            self.base_url, request.model, self.api_key
-        );
-
-        let mut body = serde_json::json!({ "contents": contents });
-        if let Some(si) = system_instruction {
-            body["systemInstruction"] = si;
-        }
-        if let Some(tools) = self.convert_tools(&request) {
-            body["tools"] = tools;
-        }
-
-        let resp = self.client.post(&url).json(&body).send().await?;
-        let status = resp.status();
-        let text = resp.text().await?;
-
-        if !status.is_success() {
-            anyhow::bail!("Gemini API error {}: {}", status, text);
-        }
-
-        let data: serde_json::Value = serde_json::from_str(&text)?;
-        parse_gemini_response(&data)
-    }
-
     async fn chat_streaming(
         &self,
         request: LlmRequest,
@@ -256,47 +229,3 @@ impl Provider for GeminiProvider {
     }
 }
 
-fn parse_gemini_response(data: &serde_json::Value) -> Result<LlmResponse> {
-    let candidate = data["candidates"]
-        .as_array()
-        .and_then(|c| c.first())
-        .ok_or_else(|| anyhow::anyhow!("No candidates in Gemini response"))?;
-
-    let mut content = String::new();
-    let mut tool_calls = Vec::new();
-
-    if let Some(parts) = candidate["content"]["parts"].as_array() {
-        for part in parts {
-            if let Some(text) = part["text"].as_str() {
-                content.push_str(text);
-            }
-            if let Some(fc) = part.get("functionCall") {
-                let name = fc["name"].as_str().unwrap_or("").to_string();
-                let args = fc["args"].clone();
-                tool_calls.push(ToolCall {
-                    id: format!("call_{}", tool_calls.len()),
-                    r#type: "function".to_string(),
-                    function: FunctionCall {
-                        name,
-                        arguments: serde_json::to_string(&args)?,
-                    },
-                });
-            }
-        }
-    }
-
-    let usage = data.get("usageMetadata").and_then(|u| {
-        Some(Usage {
-            prompt_tokens: u["promptTokenCount"].as_u64()?,
-            completion_tokens: u["candidatesTokenCount"].as_u64().unwrap_or(0),
-            total_tokens: u["totalTokenCount"].as_u64()?,
-        })
-    });
-
-    Ok(LlmResponse {
-        content: if content.is_empty() { None } else { Some(content) },
-        tool_calls,
-        usage,
-        finish_reason: candidate["finishReason"].as_str().map(|s| s.to_string()),
-    })
-}

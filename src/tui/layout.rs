@@ -48,20 +48,38 @@ fn draw_main_area(f: &mut Frame, app: &TuiApp, area: Rect) {
 }
 
 fn draw_conversation(f: &mut Frame, app: &TuiApp, area: Rect) {
+    let inner_width = area.width.saturating_sub(2) as usize; // subtract borders
+    let visible_height = area.height.saturating_sub(2) as usize;
+
     let mut lines = Vec::new();
     for msg in &app.messages {
         let prefix = if msg.role == "user" { "You: " } else { "Alchemy: " };
         let color = if msg.role == "user" { Color::Cyan } else { Color::Green };
-        lines.push(Line::from(Span::styled(
-            format!("{}{}", prefix, msg.content),
-            Style::default().fg(color),
-        )));
+        for source_line in msg.content.lines() {
+            let full = format!("{}{}", prefix, source_line);
+            // Wrap long lines manually to count rendered rows accurately.
+            if full.len() <= inner_width || inner_width == 0 {
+                lines.push(Line::from(Span::styled(full, Style::default().fg(color))));
+            } else {
+                let chars: Vec<char> = full.chars().collect();
+                for chunk in chars.chunks(inner_width) {
+                    lines.push(Line::from(Span::styled(
+                        chunk.iter().collect::<String>(),
+                        Style::default().fg(color),
+                    )));
+                }
+            }
+        }
         lines.push(Line::from(""));
     }
 
+    // Always show the most recent content at the bottom.
+    let scroll = (lines.len() as u16).saturating_sub(visible_height as u16);
+
     let p = Paragraph::new(lines)
         .block(Block::default().borders(Borders::ALL).title("💬 Conversation"))
-        .wrap(Wrap { trim: true });
+        .wrap(Wrap { trim: false })
+        .scroll((scroll, 0));
     f.render_widget(p, area);
 }
 

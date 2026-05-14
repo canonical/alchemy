@@ -144,9 +144,23 @@ fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         .scroll(((app.tools_scroll as u16).min(tools_max), 0));
     f.render_widget(tools, chunks[0]);
 
-    // File activity panel
+    // File activity panel — fade newly-added rows from yellow → green over ~1s.
+    const FADE_TICKS: usize = 20; // ~1s at 50ms tick
     let file_lines: Vec<Line> = app.files_log.iter().map(|fl| {
-        Line::from(format!("{} {}", fl.operation, fl.path))
+        let age = app.tick.saturating_sub(fl.added_tick);
+        let style = if age < FADE_TICKS {
+            // Bright yellow at first, dim as it ages, then default.
+            if age < FADE_TICKS / 3 {
+                Style::default().fg(Color::Yellow).add_modifier(ratatui::style::Modifier::BOLD)
+            } else if age < (2 * FADE_TICKS) / 3 {
+                Style::default().fg(Color::LightYellow)
+            } else {
+                Style::default().fg(Color::Green)
+            }
+        } else {
+            Style::default()
+        };
+        Line::from(Span::styled(format!("{} {}", fl.operation, fl.path), style))
     }).collect();
     let files_border = if app.focused_panel == 2 {
         Style::default().fg(Color::Yellow)

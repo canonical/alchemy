@@ -78,6 +78,8 @@ pub struct ToolLogEntry {
 pub struct FileLogEntry {
     pub path: String,
     pub operation: char,
+    /// Tick at which this entry was appended, used for the fade-in animation.
+    pub added_tick: usize,
 }
 
 impl TuiApp {
@@ -171,7 +173,7 @@ impl TuiApp {
                         FileEvent::Read { path } => (path, 'R'),
                         FileEvent::Write { path } => (path, 'W'),
                     };
-                    self.files_log.push(FileLogEntry { path, operation: op });
+                    self.files_log.push(FileLogEntry { path, operation: op, added_tick: self.tick });
                 }
             }
 

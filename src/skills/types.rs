@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct SkillFrontmatter {
     pub name: String,
     pub description: String,
@@ -16,6 +17,7 @@ pub struct SkillFrontmatter {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct SkillMetadataFields {
     pub author: Option<String>,
     pub version: Option<String>,

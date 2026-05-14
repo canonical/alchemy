@@ -654,6 +654,74 @@ mod tests {
         assert!(result.success);
     }
 
+    // ── E2E tests: gated behind ALCHEMY_E2E=1, use real LLM credentials ──
+
+    #[tokio::test]
+    async fn test_e2e_pong() {
+        if std::env::var("ALCHEMY_E2E").unwrap_or_default() != "1" {
+            return;
+        }
+        let provider_name = std::env::var("ALCHEMY_PROVIDER").expect("ALCHEMY_PROVIDER required");
+        let api_key = std::env::var("ALCHEMY_API_KEY").expect("ALCHEMY_API_KEY required");
+        let model = std::env::var("ALCHEMY_MODEL").expect("ALCHEMY_MODEL required");
+
+        let provider = crate::providers::create_provider(&provider_name, Some(&api_key), None)
+            .expect("Failed to create provider");
+
+        let config = AgentConfig {
+            model,
+            system_prompt: "You are a helpful assistant.".to_string(),
+            max_steps: 5,
+            timeout_secs: 30,
+            context_window: 128000,
+        };
+        let agent = Agent::new(config, provider, crate::tools::ToolRegistry::new());
+        let result = agent
+            .run("Reply with just the single word PONG and nothing else".to_string())
+            .await;
+
+        println!("E2E PONG result: {:?}", result);
+        assert!(result.success, "Agent failed: {:?}", result.error);
+        let answer = result.answer.expect("Expected an answer");
+        assert!(
+            answer.to_uppercase().contains("PONG"),
+            "Expected answer to contain PONG, got: {answer}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_e2e_execute_cmd() {
+        if std::env::var("ALCHEMY_E2E").unwrap_or_default() != "1" {
+            return;
+        }
+        let provider_name = std::env::var("ALCHEMY_PROVIDER").expect("ALCHEMY_PROVIDER required");
+        let api_key = std::env::var("ALCHEMY_API_KEY").expect("ALCHEMY_API_KEY required");
+        let model = std::env::var("ALCHEMY_MODEL").expect("ALCHEMY_MODEL required");
+
+        let provider = crate::providers::create_provider(&provider_name, Some(&api_key), None)
+            .expect("Failed to create provider");
+
+        let config = AgentConfig {
+            model,
+            system_prompt: "You are a helpful assistant. When asked to run a command, use the execute_cmd tool.".to_string(),
+            max_steps: 10,
+            timeout_secs: 30,
+            context_window: 128000,
+        };
+        let agent = Agent::new(config, provider, crate::tools::ToolRegistry::new());
+        let result = agent
+            .run("Run the command: echo hello_from_alchemy".to_string())
+            .await;
+
+        println!("E2E execute_cmd result: {:?}", result);
+        assert!(result.success, "Agent failed: {:?}", result.error);
+        assert!(
+            result.tools_used.contains(&"execute_cmd".to_string()),
+            "Expected execute_cmd to be called, tools_used: {:?}",
+            result.tools_used
+        );
+    }
+
     #[tokio::test]
     async fn test_agent_multi_turn_e2e() {
         let server = wiremock::MockServer::start().await;

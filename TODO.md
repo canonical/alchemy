@@ -22,7 +22,7 @@
 - [ ] **Syntax highlighting** — Conversation panel has no markdown/code syntax highlighting
 - [x] **Tool execution spinner animation** — `spinner_frame()` wired up in `layout.rs`; in-progress entries animate while running
 - [ ] **File activity fade-in animation** — No animation on new file entries
-- [ ] **Token count real-time updates** — Status bar token counter only updates on turn completion (via `result.total_tokens`)
+- [x] **Token count real-time updates** — Per-step `StepEvent` channel drives live status-bar updates; authoritative final value on turn end
 
 ## Skills System
 

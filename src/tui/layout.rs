@@ -119,9 +119,14 @@ fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         ])
         .split(area);
 
-    // Tool execution panel
+    // Tool execution panel — animate in-progress entries with a braille spinner.
+    let spinner = crate::tui::widgets::spinner_frame(app.tick);
     let tool_lines: Vec<Line> = app.tools_log.iter().map(|t| {
-        Line::from(format!("{} {} ({}ms)", t.status, t.name, t.duration_ms))
+        if t.status == "⏳" {
+            Line::from(format!("{} {}", spinner, t.name))
+        } else {
+            Line::from(format!("{} {} ({}ms)", t.status, t.name, t.duration_ms))
+        }
     }).collect();
     let tools_border = if app.focused_panel == 1 {
         Style::default().fg(Color::Yellow)

@@ -48,6 +48,7 @@ pub struct TuiApp {
     pub files_scroll: usize,
     pub conv_follow: bool,
     pub conv_max_scroll: u16,
+    pub tick: usize,
     abort_handle: Option<tokio::task::AbortHandle>,
 }
 
@@ -98,6 +99,7 @@ impl TuiApp {
             files_scroll: 0,
             conv_follow: true,
             conv_max_scroll: 0,
+            tick: 0,
             abort_handle: None,
         }
     }
@@ -201,6 +203,7 @@ impl TuiApp {
                 }
             }
 
+            self.tick = self.tick.wrapping_add(1);
             terminal.draw(|f| layout::draw(f, self))?;
 
             if !self.running {

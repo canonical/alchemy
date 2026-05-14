@@ -140,35 +140,54 @@ resource_types:
       tag: latest
 
 resources:
-  - name: ai-reviewer
+  - name: weather
     type: alchemy
+    check_every: 1h
     source:
       api_key: ((ai-provider/github-copilot.api-key))
       provider: github-copilot
       model: gpt-5-mini
-      prompt: "Review this diff for bugs and security issues"
+      prompt: "Fetch the weather for Madrid from wttr.in using curl."
+
+jobs:
+  - name: weather-check
+    plan:
+      - get: weather
+        trigger: true
+      - task: show
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: ghcr.io/canonical/alchemy
+              tag: latest
+          inputs:
+            - name: weather
+          run:
+            path: sh
+            args:
+              - -c
+              - |
+                cat weather/response.txt
 ```
 
 ### Task image
 
 ```yaml
-resources:
-  - name: alchemy-image
-    type: registry-image
-    source:
-      repository: ghcr.io/canonical/alchemy
-      tag: latest
-
 jobs:
-  - name: review
+  - name: review-diff
     plan:
       - get: source-code
         trigger: true
-      - get: alchemy-image
       - task: summarize
-        image: alchemy-image
         config:
           platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: ghcr.io/canonical/alchemy
+              tag: latest
           inputs:
             - name: source-code
           run:
@@ -177,7 +196,7 @@ jobs:
               - -c
               - |
                 cd source-code
-                git diff HEAD~1 | alchemy --output text "Summarize changes"
+                git diff HEAD~1 | alchemy --output text "Review this diff for bugs and security issues"
 ```
 
 ## CLI

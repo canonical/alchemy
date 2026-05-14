@@ -52,11 +52,6 @@ jobs:
             archive_ext: zip
             binary_suffix: .exe
             use_cross: false
-          - runner: macos-13
-            target: x86_64-apple-darwin
-            archive_ext: tar.gz
-            binary_suffix: ""
-            use_cross: false
           - runner: macos-14
             target: aarch64-apple-darwin
             archive_ext: tar.gz

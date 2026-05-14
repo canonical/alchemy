@@ -31,7 +31,7 @@
 - [x] **Full SKILL.md body loaded on activation** — `build_skill_context()` reads and appends full body to system prompt
 - [x] **Script discovery** — Scripts in `scripts/` dir discovered and registered as skill tools
 - [x] **File pattern inference** — `cwd_signals()` derives ecosystem tokens (rust/node/python/go/java/ruby/docker/terraform/github) from marker files and feeds them to `match_skills`
-- [ ] **Progressive disclosure** — All skill content loaded at once; no staged metadata → instructions → resources loading
+- [x] **Progressive disclosure** — All 3 SPEC stages now staged: metadata at startup (frontmatter only), instructions on activation (`build_skill_context`), resources on-demand (`read_resource` tool + scripts as callable tools)
 - [x] **References/assets loading on demand** — Recursively discovered at load time and surfaced via per-skill `read_resource` tool with path-allowlist validation
 
 ## MCP Client

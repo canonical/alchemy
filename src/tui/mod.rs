@@ -12,7 +12,7 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::sync::Arc;
-use crate::agent::{Agent, AgentConfig, FileEvent, ToolEvent};
+use crate::agent::{Agent, AgentConfig, FileEvent, StepEvent, ToolEvent};
 use crate::providers::Provider;
 use crate::tools::ToolRegistry;
 use crate::types::{AgentResult, Message};
@@ -40,6 +40,8 @@ pub struct TuiApp {
     file_rx: Option<tokio::sync::mpsc::Receiver<FileEvent>>,
     /// Receives streaming tokens from the background agent task.
     token_rx: Option<tokio::sync::mpsc::Receiver<String>>,
+    /// Receives per-step progress (cumulative steps + tokens) from the agent.
+    step_rx: Option<tokio::sync::mpsc::Receiver<StepEvent>>,
     /// Accumulates in-progress streaming text for the ghost message.
     streaming_content: Option<String>,
     pub focused_panel: usize,   // 0=conversation, 1=tools, 2=files
@@ -49,6 +51,11 @@ pub struct TuiApp {
     pub conv_follow: bool,
     pub conv_max_scroll: u16,
     pub tick: usize,
+    /// Committed step/token baselines from completed turns. The visible
+    /// `steps`/`total_tokens` are baseline + in-progress turn deltas while
+    /// a turn is running, so the status bar updates per-step.
+    turn_baseline_steps: u32,
+    turn_baseline_tokens: u64,
     abort_handle: Option<tokio::task::AbortHandle>,
 }
 
@@ -92,6 +99,7 @@ impl TuiApp {
             tool_rx: None,
             file_rx: None,
             token_rx: None,
+            step_rx: None,
             streaming_content: None,
             focused_panel: 0,
             conv_scroll: 0,
@@ -100,6 +108,8 @@ impl TuiApp {
             conv_follow: true,
             conv_max_scroll: 0,
             tick: 0,
+            turn_baseline_steps: 0,
+            turn_baseline_tokens: 0,
             abort_handle: None,
         }
     }
@@ -174,6 +184,14 @@ impl TuiApp {
                 }
             }
 
+            // Drain per-step progress so the status bar updates live.
+            if let Some(ref mut rx) = self.step_rx {
+                while let Ok(ev) = rx.try_recv() {
+                    self.steps = self.turn_baseline_steps + ev.steps;
+                    self.total_tokens = self.turn_baseline_tokens + ev.total_tokens;
+                }
+            }
+
             // Check if the background agent task completed.
             if let Some(ref mut rx) = self.pending {
                 if let Ok((result, mut new_history)) = rx.try_recv() {
@@ -182,10 +200,14 @@ impl TuiApp {
                     self.tool_rx = None;
                     self.file_rx = None;
                     self.token_rx = None;
+                    self.step_rx = None;
                     self.streaming_content = None;
                     self.abort_handle = None;
-                    self.steps += result.steps;
-                    self.total_tokens += result.total_tokens;
+                    // Authoritative final counts (overwrites live StepEvent values).
+                    self.steps = self.turn_baseline_steps + result.steps;
+                    self.total_tokens = self.turn_baseline_tokens + result.total_tokens;
+                    self.turn_baseline_steps = self.steps;
+                    self.turn_baseline_tokens = self.total_tokens;
                     agent.compact_history(&mut new_history);
                     self.conversation_history = new_history;
 
@@ -237,7 +259,12 @@ impl TuiApp {
                     self.tool_rx = None;
                     self.file_rx = None;
                     self.token_rx = None;
+                    self.step_rx = None;
                     self.streaming_content = None;
+                    // Commit whatever live counters had reached so the next turn's
+                    // baseline starts from there instead of double-counting.
+                    self.turn_baseline_steps = self.steps;
+                    self.turn_baseline_tokens = self.total_tokens;
                 } else {
                     self.running = false;
                 }
@@ -273,12 +300,17 @@ impl TuiApp {
 
                     let (token_tx, token_rx) = tokio::sync::mpsc::channel::<String>(256);
                     self.token_rx = Some(token_rx);
+                    let (step_tx, step_rx) = tokio::sync::mpsc::channel::<StepEvent>(16);
+                    self.step_rx = Some(step_rx);
                     self.streaming_content = None;
+                    // Snapshot baselines so live StepEvents add on top, not overwrite.
+                    self.turn_baseline_steps = self.steps;
+                    self.turn_baseline_tokens = self.total_tokens;
 
                     let arc = Arc::clone(agent);
                     let join_handle = tokio::spawn(async move {
                         let (result, new_history) = arc
-                            .run_turn_with_events(history, user_msg, token_tx, tool_tx, file_tx)
+                            .run_turn_with_events(history, user_msg, token_tx, tool_tx, file_tx, step_tx)
                             .await;
                         let _ = result_tx.send((result, new_history));
                     });

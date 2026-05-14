@@ -34,6 +34,14 @@ pub enum FileEvent {
     Write { path: String },
 }
 
+/// Cumulative progress emitted after each LLM step so the TUI status bar
+/// can show step count and token usage live instead of only on turn end.
+#[derive(Debug, Clone, Copy)]
+pub struct StepEvent {
+    pub steps: u32,
+    pub total_tokens: u64,
+}
+
 impl Agent {
     pub fn new(config: AgentConfig, provider: Box<dyn Provider>, registry: ToolRegistry) -> Self {
         Self { config, provider, registry: Arc::new(registry) }
@@ -41,7 +49,7 @@ impl Agent {
 
     /// Single-shot run: no conversation history, no streaming events.
     pub async fn run(&self, user_message: String) -> AgentResult {
-        let (result, _) = self.run_internal(vec![], user_message, None, None, None).await;
+        let (result, _) = self.run_internal(vec![], user_message, None, None, None, None).await;
         result
     }
 
@@ -53,10 +61,11 @@ impl Agent {
         history: Vec<Message>,
         user_message: String,
     ) -> (AgentResult, Vec<Message>) {
-        self.run_internal(history, user_message, None, None, None).await
+        self.run_internal(history, user_message, None, None, None, None).await
     }
 
-    /// Like `run_turn` but also streams token, ToolEvents, and FileEvents for real-time TUI display.
+    /// Like `run_turn` but also streams token, ToolEvents, FileEvents, and per-step
+    /// progress (StepEvent) for real-time TUI display.
     pub async fn run_turn_with_events(
         &self,
         history: Vec<Message>,
@@ -64,8 +73,9 @@ impl Agent {
         token_tx: tokio::sync::mpsc::Sender<String>,
         tool_tx: tokio::sync::mpsc::Sender<ToolEvent>,
         file_tx: tokio::sync::mpsc::Sender<FileEvent>,
+        step_tx: tokio::sync::mpsc::Sender<StepEvent>,
     ) -> (AgentResult, Vec<Message>) {
-        self.run_internal(history, user_message, Some(token_tx), Some(tool_tx), Some(file_tx)).await
+        self.run_internal(history, user_message, Some(token_tx), Some(tool_tx), Some(file_tx), Some(step_tx)).await
     }
 
     async fn run_internal(
@@ -75,6 +85,7 @@ impl Agent {
         token_tx: Option<tokio::sync::mpsc::Sender<String>>,
         tool_tx: Option<tokio::sync::mpsc::Sender<ToolEvent>>,
         file_tx: Option<tokio::sync::mpsc::Sender<FileEvent>>,
+        step_tx: Option<tokio::sync::mpsc::Sender<StepEvent>>,
     ) -> (AgentResult, Vec<Message>) {
         let mut messages = vec![Message {
             role: MessageRole::System,
@@ -158,6 +169,9 @@ impl Agent {
 
             if let Some(ref usage) = response.usage {
                 total_tokens += usage.total_tokens;
+            }
+            if let Some(ref tx) = step_tx {
+                let _ = tx.try_send(StepEvent { steps, total_tokens });
             }
 
             if response.tool_calls.is_empty() {
@@ -648,8 +662,9 @@ mod tests {
         let (token_tx, _token_rx) = tokio::sync::mpsc::channel::<String>(10);
         let (tool_tx, _) = tokio::sync::mpsc::channel(10);
         let (file_tx, _) = tokio::sync::mpsc::channel(10);
+        let (step_tx, _step_rx) = tokio::sync::mpsc::channel::<StepEvent>(10);
         let (result, _) = agent
-            .run_turn_with_events(vec![], "test".into(), token_tx, tool_tx, file_tx)
+            .run_turn_with_events(vec![], "test".into(), token_tx, tool_tx, file_tx, step_tx)
             .await;
         assert!(result.success);
     }

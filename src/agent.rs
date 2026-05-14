@@ -2,6 +2,7 @@ use crate::providers::Provider;
 use crate::tools::ToolRegistry;
 use crate::types::{AgentResult, LlmRequest, Message, MessageRole, ToolCall};
 use std::collections::HashSet;
+use std::sync::Arc;
 
 const MAX_LLM_ATTEMPTS: u32 = 3;
 
@@ -16,7 +17,7 @@ pub struct AgentConfig {
 pub struct Agent {
     pub config: AgentConfig,
     pub provider: Box<dyn Provider>,
-    pub registry: ToolRegistry,
+    pub registry: Arc<ToolRegistry>,
 }
 
 /// Real-time tool lifecycle events sent to callers that need live progress (e.g. TUI).
@@ -35,7 +36,7 @@ pub enum FileEvent {
 
 impl Agent {
     pub fn new(config: AgentConfig, provider: Box<dyn Provider>, registry: ToolRegistry) -> Self {
-        Self { config, provider, registry }
+        Self { config, provider, registry: Arc::new(registry) }
     }
 
     /// Single-shot run: no conversation history, no streaming events.
@@ -197,6 +198,7 @@ impl Agent {
                         let tc = (*tc).clone();
                         let timeout = self.config.timeout_secs;
                         let tx = tool_tx.clone();
+                        let registry = Arc::clone(&self.registry);
                         async move {
                             let start = std::time::Instant::now();
                             if let Some(ref tx) = tx {
@@ -204,13 +206,7 @@ impl Agent {
                                     name: tc.function.name.clone(),
                                 });
                             }
-                            let result = match crate::tools::builtin::execute(
-                                &tc.function.name,
-                                &tc.function.arguments,
-                                timeout,
-                            )
-                            .await
-                            {
+                            let result = match registry.dispatch(&tc, timeout).await {
                                 Ok(r) => r,
                                 Err(e) => tool_error_payload(&e),
                             };

@@ -1,6 +1,7 @@
 pub mod history;
 pub mod input;
 pub mod layout;
+pub mod markdown;
 pub mod widgets;
 
 use anyhow::Result;

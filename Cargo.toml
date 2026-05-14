@@ -30,6 +30,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # TUI
 ratatui = "0.30"
 crossterm = "0.29"
+pulldown-cmark = { version = "0.13", default-features = false }
 
 # RAG
 rusqlite = { version = "0.39", features = ["bundled"] }

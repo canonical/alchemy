@@ -66,21 +66,34 @@ fn render_message_lines(prefix: &str, content: &str, color: Color, inner_width: 
     lines
 }
 
+/// Render an assistant message: prefix on its own line, then markdown-styled body.
+fn render_assistant_message(prefix: &str, content: &str) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    lines.push(Line::from(Span::styled(
+        prefix.trim_end().to_string(),
+        Style::default().fg(Color::Green).add_modifier(ratatui::style::Modifier::BOLD),
+    )));
+    lines.extend(crate::tui::markdown::render(content));
+    lines
+}
+
 fn draw_conversation(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let inner_width = area.width.saturating_sub(2) as usize; // subtract borders
     let visible_height = area.height.saturating_sub(2) as usize;
 
     let mut lines = Vec::new();
     for msg in &app.messages {
-        let prefix = if msg.role == "user" { "You: " } else { "Alchemy: " };
-        let color = if msg.role == "user" { Color::Cyan } else { Color::Green };
-        lines.extend(render_message_lines(prefix, &msg.content, color, inner_width));
+        if msg.role == "user" {
+            lines.extend(render_message_lines("You: ", &msg.content, Color::Cyan, inner_width));
+        } else {
+            lines.extend(render_assistant_message("Alchemy:", &msg.content));
+        }
         lines.push(Line::from(""));
     }
 
     // Ghost message: streaming in-progress assistant response.
     if let Some(ref content) = app.streaming_content {
-        lines.extend(render_message_lines("Alchemy: ", &format!("{}▋", content), Color::Green, inner_width));
+        lines.extend(render_assistant_message("Alchemy:", &format!("{}▋", content)));
         lines.push(Line::from(""));
     }
 

@@ -253,9 +253,17 @@ async fn run_pipe(cli: Cli) -> Result<i32> {
         let embed_prov = providers::create_provider(&embed_provider, api_key.as_deref(), base_url.as_deref())?;
         let dimensions = embed_prov.embed_dimensions();
 
+        let embed_api_key = api_key.clone();
+        let embed_base_url = std::env::var("ALCHEMY_RAG_EMBED_BASE_URL").ok();
+
         let rag_config = rag::RagConfig {
             embed_provider,
-            embed_model: std::env::var("ALCHEMY_RAG_EMBED_MODEL").unwrap_or_default(),
+            embed_model: {
+                let m = std::env::var("ALCHEMY_RAG_EMBED_MODEL").unwrap_or_default();
+                if m.is_empty() { None } else { Some(m) }
+            },
+            embed_api_key,
+            embed_base_url,
             chunk_size,
             chunk_overlap,
             top_k,
@@ -368,9 +376,17 @@ async fn run_rag(action: RagAction) -> Result<()> {
     let embed_prov = providers::create_provider(&embed_provider, api_key.as_deref(), base_url.as_deref())?;
     let dimensions = embed_prov.embed_dimensions();
 
+    let embed_api_key = api_key.clone();
+    let embed_base_url = std::env::var("ALCHEMY_RAG_EMBED_BASE_URL").ok();
+
     let rag_config = rag::RagConfig {
         embed_provider,
-        embed_model: std::env::var("ALCHEMY_RAG_EMBED_MODEL").unwrap_or_default(),
+        embed_model: {
+            let m = std::env::var("ALCHEMY_RAG_EMBED_MODEL").unwrap_or_default();
+            if m.is_empty() { None } else { Some(m) }
+        },
+        embed_api_key,
+        embed_base_url,
         chunk_size,
         chunk_overlap,
         top_k,

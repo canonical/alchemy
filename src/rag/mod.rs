@@ -15,7 +15,9 @@ pub struct RagPipeline {
 
 pub struct RagConfig {
     pub embed_provider: String,
-    pub embed_model: String,
+    pub embed_model: Option<String>,
+    pub embed_api_key: Option<String>,
+    pub embed_base_url: Option<String>,
     pub chunk_size: usize,
     pub chunk_overlap: usize,
     pub top_k: usize,
@@ -32,18 +34,18 @@ impl RagPipeline {
         // Create embedder based on provider
         let embedder: Box<dyn embedder::Embedder> = match config.embed_provider.as_str() {
             "openai" => Box::new(embedder::OpenAIEmbedder::new(
-                std::env::var("ALCHEMY_API_KEY").unwrap_or_default(),
-                std::env::var("ALCHEMY_RAG_EMBED_BASE_URL").ok(),
-                if config.embed_model.is_empty() { None } else { Some(config.embed_model.clone()) },
+                config.embed_api_key.unwrap_or_default(),
+                config.embed_base_url.clone(),
+                config.embed_model.clone(),
             )),
             "gemini" => Box::new(embedder::GeminiEmbedder::new(
-                std::env::var("ALCHEMY_API_KEY").unwrap_or_default(),
-                std::env::var("ALCHEMY_RAG_EMBED_BASE_URL").ok(),
-                if config.embed_model.is_empty() { None } else { Some(config.embed_model.clone()) },
+                config.embed_api_key.unwrap_or_default(),
+                config.embed_base_url.clone(),
+                config.embed_model.clone(),
             )),
             "ollama" => Box::new(embedder::OllamaEmbedder::new(
-                std::env::var("ALCHEMY_RAG_EMBED_BASE_URL").ok(),
-                if config.embed_model.is_empty() { None } else { Some(config.embed_model.clone()) },
+                config.embed_base_url.clone(),
+                config.embed_model.clone(),
             )),
             _ => Box::new(embedder::NoopEmbedder),
         };

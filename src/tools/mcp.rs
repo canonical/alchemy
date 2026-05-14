@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Result};
 use crate::types::{FunctionDefinition, McpServerConfig, ToolDefinition};
+use eventsource_stream::Eventsource;
 use futures::StreamExt;
-use reqwest_eventsource::{Event, EventSource};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -273,16 +273,23 @@ async fn connect_sse(config: &McpServerConfig) -> Result<McpClient> {
 
     let sse_url_bg = sse_url.clone();
     tokio::spawn(async move {
-        let mut es = EventSource::get(&sse_url_bg);
-        while let Some(event) = es.next().await {
+        let resp = match reqwest::Client::new().get(&sse_url_bg).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("SSE connect failed for MCP: {}", e);
+                return;
+            }
+        };
+        let mut stream = resp.bytes_stream().eventsource();
+        while let Some(event) = stream.next().await {
             match event {
-                Ok(Event::Message(msg)) if msg.event == "endpoint" => {
+                Ok(msg) if msg.event == "endpoint" => {
                     let mut guard = endpoint_tx.lock().await;
                     if let Some(tx) = guard.take() {
                         let _ = tx.send(msg.data.clone());
                     }
                 }
-                Ok(Event::Message(msg)) => {
+                Ok(msg) => {
                     if let Ok(val) = serde_json::from_str::<Value>(&msg.data) {
                         if let Some(id) = val.get("id").and_then(|v| v.as_u64()) {
                             let mut p = pending_bg.lock().await;
@@ -296,10 +303,8 @@ async fn connect_sse(config: &McpServerConfig) -> Result<McpClient> {
                         }
                     }
                 }
-                Ok(Event::Open) => {}
                 Err(e) => {
                     tracing::warn!("SSE stream error for MCP: {}", e);
-                    es.close();
                     break;
                 }
             }

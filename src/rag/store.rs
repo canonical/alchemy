@@ -96,13 +96,16 @@ impl VectorStore {
 
     pub async fn status(&self) -> Result<StoreStatus> {
         let conn = self.conn.lock().unwrap();
-        let total_chunks: usize = conn.query_row(
+        let total_chunks: i64 = conn.query_row(
             "SELECT COUNT(*) FROM chunks", [], |r| r.get(0)
         )?;
-        let total_sources: usize = conn.query_row(
+        let total_sources: i64 = conn.query_row(
             "SELECT COUNT(DISTINCT source_path) FROM chunks", [], |r| r.get(0)
         )?;
-        Ok(StoreStatus { total_chunks, total_sources })
+        Ok(StoreStatus {
+            total_chunks: total_chunks as usize,
+            total_sources: total_sources as usize,
+        })
     }
 
     pub async fn clear(&mut self) -> Result<()> {

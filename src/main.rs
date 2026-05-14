@@ -1,5 +1,6 @@
 mod agent;
 mod concourse;
+mod http;
 mod output;
 mod providers;
 mod rag;

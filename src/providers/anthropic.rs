@@ -15,7 +15,7 @@ impl AnthropicProvider {
         Self {
             api_key,
             base_url: base_url.unwrap_or_else(|| "https://api.anthropic.com".to_string()),
-            client: Client::new(),
+            client: crate::http::new_client(),
         }
     }
 

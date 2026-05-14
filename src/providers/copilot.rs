@@ -20,7 +20,7 @@ impl CopilotProvider {
         Self {
             pat,
             base_url,
-            client: Client::new(),
+            client: crate::http::new_client(),
             token_cache: Mutex::new(None),
         }
     }

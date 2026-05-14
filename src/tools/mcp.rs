@@ -273,7 +273,7 @@ async fn connect_sse(config: &McpServerConfig) -> Result<McpClient> {
 
     let sse_url_bg = sse_url.clone();
     tokio::spawn(async move {
-        let resp = match reqwest::Client::new().get(&sse_url_bg).send().await {
+        let resp = match crate::http::new_client().get(&sse_url_bg).send().await {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!("SSE connect failed for MCP: {}", e);
@@ -329,7 +329,7 @@ async fn connect_sse(config: &McpServerConfig) -> Result<McpClient> {
         name: config.name.clone(),
         transport: ClientTransport::Sse(SseConn {
             post_url,
-            http: reqwest::Client::new(),
+            http: crate::http::new_client(),
             id: AtomicU64::new(1),
             pending,
         }),

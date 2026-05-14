@@ -30,7 +30,7 @@ impl OpenAIEmbedder {
             api_key,
             base_url: base_url.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
             model: model.unwrap_or_else(|| "text-embedding-3-small".to_string()),
-            client: reqwest::Client::new(),
+            client: crate::http::new_client(),
         }
     }
 }
@@ -82,7 +82,7 @@ impl GeminiEmbedder {
                 "https://generativelanguage.googleapis.com/v1beta".to_string()
             }),
             model: model.unwrap_or_else(|| "text-embedding-004".to_string()),
-            client: reqwest::Client::new(),
+            client: crate::http::new_client(),
         }
     }
 }
@@ -128,7 +128,7 @@ impl OllamaEmbedder {
         Self {
             base_url: base_url.unwrap_or_else(|| "http://localhost:11434".to_string()),
             model: model.unwrap_or_else(|| "nomic-embed-text".to_string()),
-            client: reqwest::Client::new(),
+            client: crate::http::new_client(),
         }
     }
 }

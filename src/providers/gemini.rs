@@ -15,7 +15,7 @@ impl GeminiProvider {
         Self {
             api_key,
             base_url: base_url.unwrap_or_else(|| "https://generativelanguage.googleapis.com/v1beta".to_string()),
-            client: Client::new(),
+            client: crate::http::new_client(),
         }
     }
 

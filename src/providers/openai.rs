@@ -17,7 +17,7 @@ impl OpenAiProvider {
             api_key,
             base_url,
             variant,
-            client: Client::new(),
+            client: crate::http::new_client(),
         }
     }
 

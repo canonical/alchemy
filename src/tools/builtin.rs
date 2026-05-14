@@ -223,7 +223,7 @@ async fn execute_fetch_url(args: &serde_json::Value, timeout_secs: u64) -> Resul
     let url = args["url"].as_str()
         .ok_or_else(|| anyhow::anyhow!("fetch_url: missing 'url' parameter"))?;
 
-    let client = reqwest::Client::builder()
+    let client = crate::http::client_builder()
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()?;

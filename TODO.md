@@ -32,7 +32,7 @@
 - [x] **Script discovery** — Scripts in `scripts/` dir discovered and registered as skill tools
 - [x] **File pattern inference** — `cwd_signals()` derives ecosystem tokens (rust/node/python/go/java/ruby/docker/terraform/github) from marker files and feeds them to `match_skills`
 - [ ] **Progressive disclosure** — All skill content loaded at once; no staged metadata → instructions → resources loading
-- [ ] **References/assets loading on demand** — `references/` and `assets/` directories not loaded when needed
+- [x] **References/assets loading on demand** — Recursively discovered at load time and surfaced via per-skill `read_resource` tool with path-allowlist validation
 
 ## MCP Client
 

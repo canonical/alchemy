@@ -31,7 +31,7 @@ impl RagPipeline {
 
         // Create embedder based on provider
         let embedder: Box<dyn embedder::Embedder> = match config.embed_provider.as_str() {
-            "openai" | "openrouter" => Box::new(embedder::OpenAIEmbedder::new(
+            "openai" => Box::new(embedder::OpenAIEmbedder::new(
                 std::env::var("ALCHEMY_API_KEY").unwrap_or_default(),
                 std::env::var("ALCHEMY_RAG_EMBED_BASE_URL").ok(),
                 if config.embed_model.is_empty() { None } else { Some(config.embed_model.clone()) },

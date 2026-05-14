@@ -11,6 +11,7 @@ mod types;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use serde::de::DeserializeOwned;
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -49,6 +50,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Concourse check entrypoint
+    Check,
+    /// Concourse in entrypoint
+    In {
+        /// Destination directory for resource output
+        dest_dir: String,
+    },
+    /// Concourse out entrypoint
+    Out {
+        /// Source directory for resource input
+        source_dir: String,
+    },
     /// TUI mode
     Tui {
         /// Session name
@@ -131,6 +144,24 @@ async fn run() -> i32 {
     }
 
     match cli.command {
+        Some(Commands::Check) => {
+            match run_concourse_check().await {
+                Ok(()) => 0,
+                Err(e) => { eprintln!("Error: {}", e); 1 }
+            }
+        }
+        Some(Commands::In { dest_dir }) => {
+            match run_concourse_in(&dest_dir).await {
+                Ok(()) => 0,
+                Err(e) => { eprintln!("Error: {}", e); 1 }
+            }
+        }
+        Some(Commands::Out { source_dir }) => {
+            match run_concourse_out(&source_dir).await {
+                Ok(()) => 0,
+                Err(e) => { eprintln!("Error: {}", e); 1 }
+            }
+        }
         Some(Commands::Tui { session, session_dir, system, max_steps, timeout }) => {
             match run_tui(session, session_dir, system, max_steps, timeout).await {
                 Ok(()) => 0,
@@ -433,6 +464,27 @@ async fn run_rag(action: RagAction) -> Result<()> {
     Ok(())
 }
 
+async fn run_concourse_check() -> Result<()> {
+    let input: types::ConcourseCheckInput = read_json_stdin()?;
+    let versions = concourse::run_check(input).await?;
+    println!("{}", serde_json::to_string(&versions)?);
+    Ok(())
+}
+
+async fn run_concourse_in(dest_dir: &str) -> Result<()> {
+    let input: types::ConcourseInInput = read_json_stdin()?;
+    let output = concourse::run_in(input, dest_dir).await?;
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
+
+async fn run_concourse_out(source_dir: &str) -> Result<()> {
+    let input: types::ConcourseOutInput = read_json_stdin()?;
+    let output = concourse::run_out(input, source_dir).await?;
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
+}
+
 fn read_stdin() -> Option<String> {
     use std::io::IsTerminal;
     if std::io::stdin().is_terminal() {
@@ -441,6 +493,14 @@ fn read_stdin() -> Option<String> {
     let mut buf = String::new();
     std::io::stdin().read_to_string(&mut buf).ok()?;
     if buf.is_empty() { None } else { Some(buf) }
+}
+
+fn read_json_stdin<T>() -> Result<T>
+where
+    T: DeserializeOwned,
+{
+    let input = read_stdin().ok_or_else(|| anyhow::anyhow!("Expected JSON on stdin"))?;
+    Ok(serde_json::from_str(&input)?)
 }
 
 fn load_mcp_configs() -> Vec<types::McpServerConfig> {
@@ -535,5 +595,23 @@ mod tests {
             config.servers[0].url.as_deref(),
             Some("http://localhost:3001/mcp")
         );
+    }
+
+    #[test]
+    fn test_concourse_check_command_parses() {
+        let cli = Cli::try_parse_from(["alchemy", "check"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Check)));
+    }
+
+    #[test]
+    fn test_concourse_in_command_parses() {
+        let cli = Cli::try_parse_from(["alchemy", "in", "resource"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::In { ref dest_dir }) if dest_dir == "resource"));
+    }
+
+    #[test]
+    fn test_concourse_out_command_parses() {
+        let cli = Cli::try_parse_from(["alchemy", "out", "source"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Out { ref source_dir }) if source_dir == "source"));
     }
 }

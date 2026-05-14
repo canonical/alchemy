@@ -43,7 +43,7 @@
 
 ## Concourse CI
 
-- [ ] **CLI subcommand dispatch** — `main.rs` doesn't expose `check`/`in`/`out` binary entrypoints (Concourse expects separate binaries or symlinks at `/opt/resource/{check,in,out}`); functions exist but are `#[allow(dead_code)]`
+- [x] **CLI subcommand dispatch** — `main.rs` now exposes `check`/`in`/`out` entrypoints and dispatches to the existing Concourse handlers
 - [x] **Metadata completeness** — `in_cmd.rs` and `out.rs` now emit `model` and `duration_secs` in both `metadata.json` and the Concourse `metadata[]` array
 - [x] **Out metadata: tools_used missing** — `out.rs` now includes `tools_used` in the Concourse metadata array
 

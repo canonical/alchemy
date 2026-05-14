@@ -38,6 +38,10 @@ pub struct TuiApp {
     tool_rx: Option<tokio::sync::mpsc::Receiver<ToolEvent>>,
     /// Receives real-time file events from the background agent task.
     file_rx: Option<tokio::sync::mpsc::Receiver<FileEvent>>,
+    /// Receives streaming tokens from the background agent task.
+    token_rx: Option<tokio::sync::mpsc::Receiver<String>>,
+    /// Accumulates in-progress streaming text for the ghost message.
+    streaming_content: Option<String>,
 }
 
 #[derive(Clone)]
@@ -77,6 +81,8 @@ impl TuiApp {
             pending: None,
             tool_rx: None,
             file_rx: None,
+            token_rx: None,
+            streaming_content: None,
         }
     }
 
@@ -141,6 +147,15 @@ impl TuiApp {
                 }
             }
 
+            // Drain streaming tokens.
+            if let Some(ref mut rx) = self.token_rx {
+                while let Ok(token) = rx.try_recv() {
+                    self.streaming_content
+                        .get_or_insert_with(String::new)
+                        .push_str(&token);
+                }
+            }
+
             // Check if the background agent task completed.
             if let Some(ref mut rx) = self.pending {
                 if let Ok((result, mut new_history)) = rx.try_recv() {
@@ -148,6 +163,8 @@ impl TuiApp {
                     self.pending = None;
                     self.tool_rx = None;
                     self.file_rx = None;
+                    self.token_rx = None;
+                    self.streaming_content = None;
                     self.steps += result.steps;
                     self.total_tokens += result.total_tokens;
                     agent.compact_history(&mut new_history);
@@ -194,6 +211,10 @@ impl TuiApp {
                 if self.agent_busy {
                     self.agent_busy = false;
                     self.pending = None;
+                    self.tool_rx = None;
+                    self.file_rx = None;
+                    self.token_rx = None;
+                    self.streaming_content = None;
                 } else {
                     self.running = false;
                 }
@@ -226,11 +247,12 @@ impl TuiApp {
                     self.tool_rx = Some(tool_rx);
                     self.file_rx = Some(file_rx);
 
+                    let (token_tx, token_rx) = tokio::sync::mpsc::channel::<String>(256);
+                    self.token_rx = Some(token_rx);
+                    self.streaming_content = None;
+
                     let arc = Arc::clone(agent);
                     tokio::spawn(async move {
-                        // Receiver dropped intentionally — Task 2 will replace this with a real receiver
-                        // that drains tokens into streaming_content for display.
-                        let (token_tx, _token_sink) = tokio::sync::mpsc::channel::<String>(256);
                         let (result, new_history) = arc
                             .run_turn_with_events(history, user_msg, token_tx, tool_tx, file_tx)
                             .await;

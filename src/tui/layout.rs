@@ -7,7 +7,7 @@ use ratatui::{
 };
 use crate::tui::TuiApp;
 
-pub fn draw(f: &mut Frame, app: &TuiApp) {
+pub fn draw(f: &mut Frame, app: &mut TuiApp) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -22,7 +22,7 @@ pub fn draw(f: &mut Frame, app: &TuiApp) {
     draw_input(f, app, chunks[2]);
 }
 
-fn draw_status_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
+fn draw_status_bar(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let status = format!(
         " Alchemy v0.1.0 │ {} │ ⏱ {} steps │ 📊 {}k tokens",
         app.model_name,
@@ -34,7 +34,7 @@ fn draw_status_bar(f: &mut Frame, app: &TuiApp, area: Rect) {
     f.render_widget(p, area);
 }
 
-fn draw_main_area(f: &mut Frame, app: &TuiApp, area: Rect) {
+fn draw_main_area(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -66,7 +66,7 @@ fn render_message_lines(prefix: &str, content: &str, color: Color, inner_width: 
     lines
 }
 
-fn draw_conversation(f: &mut Frame, app: &TuiApp, area: Rect) {
+fn draw_conversation(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let inner_width = area.width.saturating_sub(2) as usize; // subtract borders
     let visible_height = area.height.saturating_sub(2) as usize;
 
@@ -84,17 +84,33 @@ fn draw_conversation(f: &mut Frame, app: &TuiApp, area: Rect) {
         lines.push(Line::from(""));
     }
 
-    // Always show the most recent content at the bottom.
-    let scroll = (lines.len() as u16).saturating_sub(visible_height as u16);
+    let total_lines = lines.len() as u16;
+    let max_scroll = total_lines.saturating_sub(visible_height as u16);
+    app.conv_max_scroll = max_scroll;
+    let scroll = if app.conv_follow {
+        max_scroll
+    } else {
+        (app.conv_scroll as u16).min(max_scroll)
+    };
 
+    let border_style = if app.focused_panel == 0 {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
     let p = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title("💬 Conversation"))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("💬 Conversation")
+                .border_style(border_style),
+        )
         .wrap(Wrap { trim: false })
         .scroll((scroll, 0));
     f.render_widget(p, area);
 }
 
-fn draw_side_panels(f: &mut Frame, app: &TuiApp, area: Rect) {
+fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -107,20 +123,44 @@ fn draw_side_panels(f: &mut Frame, app: &TuiApp, area: Rect) {
     let tool_lines: Vec<Line> = app.tools_log.iter().map(|t| {
         Line::from(format!("{} {} ({}ms)", t.status, t.name, t.duration_ms))
     }).collect();
+    let tools_border = if app.focused_panel == 1 {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
+    let tools_max = (tool_lines.len() as u16).saturating_sub(chunks[0].height.saturating_sub(2));
     let tools = Paragraph::new(tool_lines)
-        .block(Block::default().borders(Borders::ALL).title("🔧 Tools"));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("🔧 Tools")
+                .border_style(tools_border),
+        )
+        .scroll(((app.tools_scroll as u16).min(tools_max), 0));
     f.render_widget(tools, chunks[0]);
 
     // File activity panel
     let file_lines: Vec<Line> = app.files_log.iter().map(|fl| {
         Line::from(format!("{} {}", fl.operation, fl.path))
     }).collect();
+    let files_border = if app.focused_panel == 2 {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
+    let files_max = (file_lines.len() as u16).saturating_sub(chunks[1].height.saturating_sub(2));
     let files = Paragraph::new(file_lines)
-        .block(Block::default().borders(Borders::ALL).title("📁 Files"));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("📁 Files")
+                .border_style(files_border),
+        )
+        .scroll(((app.files_scroll as u16).min(files_max), 0));
     f.render_widget(files, chunks[1]);
 }
 
-fn draw_input(f: &mut Frame, app: &TuiApp, area: Rect) {
+fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let input_text = if app.agent_busy {
         "⏳ Agent is working...".to_string()
     } else {

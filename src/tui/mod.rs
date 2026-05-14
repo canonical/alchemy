@@ -42,7 +42,15 @@ pub struct TuiApp {
     token_rx: Option<tokio::sync::mpsc::Receiver<String>>,
     /// Accumulates in-progress streaming text for the ghost message.
     streaming_content: Option<String>,
+    pub focused_panel: usize,   // 0=conversation, 1=tools, 2=files
+    pub conv_scroll: usize,
+    pub tools_scroll: usize,
+    pub files_scroll: usize,
+    pub conv_follow: bool,
+    pub conv_max_scroll: u16,
 }
+
+const NUM_PANELS: usize = 3;
 
 #[derive(Clone)]
 pub struct TuiMessage {
@@ -83,6 +91,12 @@ impl TuiApp {
             file_rx: None,
             token_rx: None,
             streaming_content: None,
+            focused_panel: 0,
+            conv_scroll: 0,
+            tools_scroll: 0,
+            files_scroll: 0,
+            conv_follow: true,
+            conv_max_scroll: 0,
         }
     }
 
@@ -235,6 +249,7 @@ impl TuiApp {
                     self.input.clear();
                     self.messages
                         .push(TuiMessage { role: "user".into(), content: user_msg.clone() });
+                    self.conv_follow = true;
 
                     self.tools_log.clear();
                     self.agent_busy = true;
@@ -265,6 +280,47 @@ impl TuiApp {
             }
             (KeyModifiers::NONE, KeyCode::Backspace) => {
                 self.input.pop();
+            }
+            (KeyModifiers::NONE, KeyCode::Tab) => {
+                self.focused_panel = (self.focused_panel + 1) % NUM_PANELS;
+            }
+            (KeyModifiers::NONE, KeyCode::Up) => {
+                match self.focused_panel {
+                    0 => {
+                        self.conv_follow = false;
+                        self.conv_scroll = self.conv_scroll.saturating_sub(1);
+                    }
+                    1 => { self.tools_scroll = self.tools_scroll.saturating_sub(1); }
+                    2 => { self.files_scroll = self.files_scroll.saturating_sub(1); }
+                    _ => {}
+                }
+            }
+            (KeyModifiers::NONE, KeyCode::Down) => {
+                match self.focused_panel {
+                    0 => {
+                        self.conv_scroll += 1;
+                        // Re-enable auto-follow when scrolled back to the bottom.
+                        if self.conv_scroll as u16 >= self.conv_max_scroll {
+                            self.conv_follow = true;
+                            self.conv_scroll = self.conv_max_scroll as usize;
+                        }
+                    }
+                    1 => { self.tools_scroll += 1; }
+                    2 => { self.files_scroll += 1; }
+                    _ => {}
+                }
+            }
+            (KeyModifiers::CONTROL, KeyCode::Up) => {
+                self.conv_follow = false;
+                self.conv_scroll = self.conv_scroll.saturating_sub(5);
+            }
+            (KeyModifiers::CONTROL, KeyCode::Down) => {
+                self.conv_follow = false;
+                self.conv_scroll += 5;
+                if self.conv_scroll as u16 >= self.conv_max_scroll {
+                    self.conv_follow = true;
+                    self.conv_scroll = self.conv_max_scroll as usize;
+                }
             }
             (KeyModifiers::NONE, KeyCode::Char(c)) => {
                 self.input.push(c);

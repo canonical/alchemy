@@ -3,7 +3,6 @@ use sha2::{Sha256, Digest};
 use crate::types::*;
 use crate::concourse::create_agent_from_source;
 
-#[allow(dead_code)]
 pub async fn run(input: ConcourseCheckInput) -> Result<Vec<ConcourseVersion>> {
     let (agent, prompt, _model) = create_agent_from_source(
         &input.source, None, None, None, None, None,

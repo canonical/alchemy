@@ -15,9 +15,6 @@ Working in v0.1.0:
 - Five built-in tools
 - MCP client (stdio + SSE) — pipe mode
 - Skills system (Agent Skills Specification) — pipe mode
-
-Not yet wired into the binary (code exists, no CLI entry point):
-
 - Concourse CI `check` / `in` / `out` lifecycle
 - `sqlite-vec` virtual table for RAG — the current store falls back to a full-scan cosine similarity in Rust; functional but unindexed
 - MCP / skills / RAG inside TUI mode
@@ -128,6 +125,61 @@ alchemy rag status
 alchemy rag clear
 ```
 
+## Concourse CI
+
+The published container image is `ghcr.io/canonical/alchemy:latest`. It ships `/opt/resource/check`, `/opt/resource/in`, and `/opt/resource/out` wrappers for use as a Concourse resource type, and it can also be used directly as a task image.
+
+### Resource type
+
+```yaml
+resource_types:
+  - name: alchemy
+    type: registry-image
+    source:
+      repository: ghcr.io/canonical/alchemy
+      tag: latest
+
+resources:
+  - name: ai-reviewer
+    type: alchemy
+    source:
+      api_key: ((ai-provider/github-copilot.api-key))
+      provider: github-copilot
+      model: gpt-5-mini
+      prompt: "Review this diff for bugs and security issues"
+```
+
+### Task image
+
+```yaml
+resources:
+  - name: alchemy-image
+    type: registry-image
+    source:
+      repository: ghcr.io/canonical/alchemy
+      tag: latest
+
+jobs:
+  - name: review
+    plan:
+      - get: source-code
+        trigger: true
+      - get: alchemy-image
+      - task: summarize
+        image: alchemy-image
+        config:
+          platform: linux
+          inputs:
+            - name: source-code
+          run:
+            path: sh
+            args:
+              - -c
+              - |
+                cd source-code
+                git diff HEAD~1 | alchemy --output text "Summarize changes"
+```
+
 ## CLI
 
 ```text
@@ -180,7 +232,7 @@ src/
 ├── skills/          Agent Skills Specification loader
 ├── rag/             chunker · embedder · store · retriever
 ├── tui/             ratatui + crossterm interactive UI
-├── concourse/       Concourse CI lifecycle (not yet wired to CLI)
+├── concourse/       Concourse CI lifecycle
 ├── types.rs         shared message / config types
 └── output.rs        pipe-mode output formatting
 ```

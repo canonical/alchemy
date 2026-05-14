@@ -2,7 +2,6 @@ use anyhow::Result;
 use crate::types::*;
 use crate::concourse::create_agent_from_source;
 
-#[allow(dead_code)]
 pub async fn run(input: ConcourseInInput, dest_dir: &str) -> Result<ConcourseInOutput> {
     let (agent, prompt, model) = create_agent_from_source(
         &input.source, None, None, None, None, None,

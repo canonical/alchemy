@@ -47,6 +47,25 @@ fn draw_main_area(f: &mut Frame, app: &TuiApp, area: Rect) {
     draw_side_panels(f, app, chunks[1]);
 }
 
+fn render_message_lines(prefix: &str, content: &str, color: Color, inner_width: usize) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    for source_line in content.lines() {
+        let full = format!("{}{}", prefix, source_line);
+        if full.len() <= inner_width || inner_width == 0 {
+            lines.push(Line::from(Span::styled(full, Style::default().fg(color))));
+        } else {
+            let chars: Vec<char> = full.chars().collect();
+            for chunk in chars.chunks(inner_width) {
+                lines.push(Line::from(Span::styled(
+                    chunk.iter().collect::<String>(),
+                    Style::default().fg(color),
+                )));
+            }
+        }
+    }
+    lines
+}
+
 fn draw_conversation(f: &mut Frame, app: &TuiApp, area: Rect) {
     let inner_width = area.width.saturating_sub(2) as usize; // subtract borders
     let visible_height = area.height.saturating_sub(2) as usize;
@@ -55,21 +74,13 @@ fn draw_conversation(f: &mut Frame, app: &TuiApp, area: Rect) {
     for msg in &app.messages {
         let prefix = if msg.role == "user" { "You: " } else { "Alchemy: " };
         let color = if msg.role == "user" { Color::Cyan } else { Color::Green };
-        for source_line in msg.content.lines() {
-            let full = format!("{}{}", prefix, source_line);
-            // Wrap long lines manually to count rendered rows accurately.
-            if full.len() <= inner_width || inner_width == 0 {
-                lines.push(Line::from(Span::styled(full, Style::default().fg(color))));
-            } else {
-                let chars: Vec<char> = full.chars().collect();
-                for chunk in chars.chunks(inner_width) {
-                    lines.push(Line::from(Span::styled(
-                        chunk.iter().collect::<String>(),
-                        Style::default().fg(color),
-                    )));
-                }
-            }
-        }
+        lines.extend(render_message_lines(prefix, &msg.content, color, inner_width));
+        lines.push(Line::from(""));
+    }
+
+    // Ghost message: streaming in-progress assistant response.
+    if let Some(ref content) = app.streaming_content {
+        lines.extend(render_message_lines("Alchemy: ", &format!("{}▋", content), Color::Green, inner_width));
         lines.push(Line::from(""));
     }
 

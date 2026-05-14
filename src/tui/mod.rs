@@ -48,6 +48,7 @@ pub struct TuiApp {
     pub files_scroll: usize,
     pub conv_follow: bool,
     pub conv_max_scroll: u16,
+    abort_handle: Option<tokio::task::AbortHandle>,
 }
 
 const NUM_PANELS: usize = 3;
@@ -97,6 +98,7 @@ impl TuiApp {
             files_scroll: 0,
             conv_follow: true,
             conv_max_scroll: 0,
+            abort_handle: None,
         }
     }
 
@@ -179,6 +181,7 @@ impl TuiApp {
                     self.file_rx = None;
                     self.token_rx = None;
                     self.streaming_content = None;
+                    self.abort_handle = None;
                     self.steps += result.steps;
                     self.total_tokens += result.total_tokens;
                     agent.compact_history(&mut new_history);
@@ -223,6 +226,9 @@ impl TuiApp {
             }
             (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
                 if self.agent_busy {
+                    if let Some(h) = self.abort_handle.take() {
+                        h.abort();
+                    }
                     self.agent_busy = false;
                     self.pending = None;
                     self.tool_rx = None;
@@ -267,12 +273,13 @@ impl TuiApp {
                     self.streaming_content = None;
 
                     let arc = Arc::clone(agent);
-                    tokio::spawn(async move {
+                    let join_handle = tokio::spawn(async move {
                         let (result, new_history) = arc
                             .run_turn_with_events(history, user_msg, token_tx, tool_tx, file_tx)
                             .await;
                         let _ = result_tx.send((result, new_history));
                     });
+                    self.abort_handle = Some(join_handle.abort_handle());
                 }
             }
             (KeyModifiers::SHIFT, KeyCode::Enter) => {

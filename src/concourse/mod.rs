@@ -31,7 +31,7 @@ pub(crate) fn create_agent_from_source(
     system_override: Option<&str>,
     max_steps_override: Option<u32>,
     timeout_override: Option<u64>,
-) -> Result<(Agent, String)> {
+) -> Result<(Agent, String, String)> {
     let provider_name = source.provider.as_deref()
         .ok_or_else(|| anyhow::anyhow!("source.provider is required"))?;
     let api_key = source.api_key.as_deref();
@@ -56,7 +56,7 @@ pub(crate) fn create_agent_from_source(
         .to_string();
 
     let config = AgentConfig {
-        model,
+        model: model.clone(),
         system_prompt,
         max_steps,
         timeout_secs: timeout,
@@ -65,5 +65,5 @@ pub(crate) fn create_agent_from_source(
 
     let registry = ToolRegistry::new();
     let agent = Agent::new(config, provider, registry);
-    Ok((agent, prompt))
+    Ok((agent, prompt, model))
 }

@@ -97,7 +97,10 @@ async fn main() {
 }
 
 async fn run() -> i32 {
-    let log_level = std::env::var("ALCHEMY_LOG_LEVEL").unwrap_or_else(|_| "warn".to_string());
+    let log_level = std::env::var("ALCHEMY_LOG_LEVEL")
+        .ok()
+        .and_then(|s| s.parse::<tracing::Level>().ok())
+        .unwrap_or(tracing::Level::WARN);
     let cli = Cli::parse();
 
     // In TUI mode write logs to a file so they don't corrupt the terminal display.
@@ -110,19 +113,19 @@ async fn run() -> i32 {
             .create(true).append(true).open(&log_path)
         {
             tracing_subscriber::fmt()
-                .with_env_filter(&log_level)
+                .with_max_level(log_level)
                 .with_writer(std::sync::Mutex::new(file))
                 .with_ansi(false)
                 .init();
         } else {
             tracing_subscriber::fmt()
-                .with_env_filter(&log_level)
+                .with_max_level(log_level)
                 .with_writer(std::io::sink)
                 .init();
         }
     } else {
         tracing_subscriber::fmt()
-            .with_env_filter(&log_level)
+            .with_max_level(log_level)
             .with_writer(std::io::stderr)
             .init();
     }

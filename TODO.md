@@ -21,7 +21,7 @@
 - [x] **Ctrl+D exit** — Exits TUI
 - [ ] **Syntax highlighting** — Conversation panel has no markdown/code syntax highlighting
 - [x] **Tool execution spinner animation** — `spinner_frame()` wired up in `layout.rs`; in-progress entries animate while running
-- [ ] **File activity fade-in animation** — No animation on new file entries
+- [x] **File activity fade-in animation** — New entries record their tick; renderer fades them yellow → green → default over ~1s
 - [x] **Token count real-time updates** — Per-step `StepEvent` channel drives live status-bar updates; authoritative final value on turn end
 
 ## Skills System

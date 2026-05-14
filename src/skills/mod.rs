@@ -78,11 +78,51 @@ async fn parse_skill(skill_md: &Path, skill_dir: &Path) -> Result<SkillMetadata>
         }
     }
 
+    // Discover references/ and assets/ files. Recursive so skill authors can
+    // organize by topic. Paths are kept relative to the skill dir.
+    let mut resources = Vec::new();
+    for subdir in ["references", "assets"] {
+        let root = skill_dir.join(subdir);
+        if root.exists() {
+            collect_files(&root, subdir, &mut resources).await;
+        }
+    }
+    resources.sort();
+
     Ok(SkillMetadata {
         name,
         description,
         path: skill_dir.to_path_buf(),
         scripts,
+        resources,
+    })
+}
+
+/// Recursively walk `dir`, appending each file's path relative to the skill
+/// root (using `rel_prefix` as the relative root, e.g. "references").
+fn collect_files<'a>(
+    dir: &'a Path,
+    rel_prefix: &'a str,
+    out: &'a mut Vec<String>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+    Box::pin(async move {
+        let mut rd = match tokio::fs::read_dir(dir).await {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        while let Ok(Some(entry)) = rd.next_entry().await {
+            let path = entry.path();
+            let name = match path.file_name() {
+                Some(n) => n.to_string_lossy().to_string(),
+                None => continue,
+            };
+            let rel = format!("{}/{}", rel_prefix, name);
+            if path.is_dir() {
+                collect_files(&path, &rel, out).await;
+            } else if path.is_file() {
+                out.push(rel);
+            }
+        }
     })
 }
 
@@ -171,7 +211,6 @@ pub async fn build_skill_context(skills: &[SkillMetadata], indices: &[usize]) ->
         if let Some(skill) = skills.get(idx) {
             let skill_md = skill.path.join("SKILL.md");
             if let Ok(content) = tokio::fs::read_to_string(&skill_md).await {
-                // Strip frontmatter, get body
                 let body = if let Some(rest) = content.strip_prefix("---") {
                     if let Some(end) = rest.find("---") {
                         rest[end + 3..].trim().to_string()
@@ -182,6 +221,16 @@ pub async fn build_skill_context(skills: &[SkillMetadata], indices: &[usize]) ->
                     content
                 };
                 context.push_str(&format!("\n\n## Skill: {}\n{}", skill.name, body));
+            }
+
+            if !skill.resources.is_empty() {
+                context.push_str(&format!(
+                    "\n\nResources for skill '{}' (read via `skill_{}_read_resource`):",
+                    skill.name, skill.name,
+                ));
+                for rel in &skill.resources {
+                    context.push_str(&format!("\n- {}", rel));
+                }
             }
         }
     }
@@ -200,6 +249,7 @@ mod tests {
             description: description.to_string(),
             path: std::path::PathBuf::from("/tmp/fake"),
             scripts: vec![],
+            resources: vec![],
         }
     }
 
@@ -276,5 +326,30 @@ Do things."#).await.unwrap();
     async fn test_build_skill_context_empty() {
         let ctx = build_skill_context(&[], &[]).await;
         assert!(ctx.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_load_skills_discovers_resources() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = dir.path().join("docs-skill");
+        tokio::fs::create_dir_all(skill_dir.join("references").join("nested"))
+            .await.unwrap();
+        tokio::fs::create_dir_all(skill_dir.join("assets")).await.unwrap();
+        tokio::fs::write(skill_dir.join("SKILL.md"), "---\nname: docs-skill\ndescription: docs\n---\nbody").await.unwrap();
+        tokio::fs::write(skill_dir.join("references").join("api.md"), "api docs").await.unwrap();
+        tokio::fs::write(skill_dir.join("references").join("nested").join("more.md"), "more").await.unwrap();
+        tokio::fs::write(skill_dir.join("assets").join("template.toml"), "[x]").await.unwrap();
+
+        let skills = load_skills(dir.path()).await;
+        assert_eq!(skills.len(), 1);
+        let r = &skills[0].resources;
+        assert!(r.contains(&"references/api.md".to_string()), "{:?}", r);
+        assert!(r.contains(&"references/nested/more.md".to_string()), "{:?}", r);
+        assert!(r.contains(&"assets/template.toml".to_string()), "{:?}", r);
+
+        // Context should list them.
+        let ctx = build_skill_context(&skills, &[0]).await;
+        assert!(ctx.contains("read_resource"));
+        assert!(ctx.contains("references/api.md"));
     }
 }

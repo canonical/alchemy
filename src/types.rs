@@ -173,6 +173,9 @@ pub struct SkillMetadata {
     pub description: String,
     pub path: std::path::PathBuf,
     pub scripts: Vec<SkillScript>,
+    /// Relative paths under `references/` and `assets/` (e.g. "references/api.md").
+    /// Surfaced to the LLM and readable via the per-skill `read_resource` tool.
+    pub resources: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

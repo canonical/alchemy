@@ -5,7 +5,7 @@ use futures::StreamExt;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{oneshot, Mutex};
 
@@ -49,6 +49,7 @@ struct SseConn {
     http: reqwest::Client,
     id: AtomicU64,
     pending: PendingMap,
+    closed: Arc<AtomicBool>,
 }
 
 impl McpClient {
@@ -83,6 +84,9 @@ impl McpClient {
                 }
             }
             ClientTransport::Sse(conn) => {
+                if conn.closed.load(Ordering::SeqCst) {
+                    bail!("MCP server '{}' SSE stream is closed", self.name);
+                }
                 let id = conn.id.fetch_add(1, Ordering::SeqCst);
                 let (tx, rx) = oneshot::channel();
                 conn.pending.lock().await.insert(id, tx);
@@ -95,7 +99,7 @@ impl McpClient {
                 match rx.await {
                     Ok(Ok(val)) => Ok(val),
                     Ok(Err(e)) => bail!("MCP error from '{}': {}", self.name, e),
-                    Err(_) => bail!("MCP server '{}' disconnected before responding", self.name),
+                    Err(_) => bail!("MCP server '{}' SSE stream closed before responding", self.name),
                 }
             }
         }
@@ -266,30 +270,34 @@ async fn connect_sse(config: &McpServerConfig) -> Result<McpClient> {
 
     let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
     let pending_bg = pending.clone();
+    let closed = Arc::new(AtomicBool::new(false));
+    let closed_bg = closed.clone();
 
     // One-shot channel to receive the POST endpoint URL from the first SSE event
     let (endpoint_tx, endpoint_rx) = oneshot::channel::<String>();
     let endpoint_tx = Arc::new(Mutex::new(Some(endpoint_tx)));
 
     let sse_url_bg = sse_url.clone();
+    let server_name = config.name.clone();
     tokio::spawn(async move {
         let resp = match crate::http::new_client().get(&sse_url_bg).send().await {
             Ok(r) => r,
             Err(e) => {
-                tracing::warn!("SSE connect failed for MCP: {}", e);
+                tracing::warn!("SSE connect failed for MCP '{}': {}", server_name, e);
+                closed_bg.store(true, Ordering::SeqCst);
                 return;
             }
         };
         let mut stream = resp.bytes_stream().eventsource();
-        while let Some(event) = stream.next().await {
-            match event {
-                Ok(msg) if msg.event == "endpoint" => {
+        let close_reason = loop {
+            match stream.next().await {
+                Some(Ok(msg)) if msg.event == "endpoint" => {
                     let mut guard = endpoint_tx.lock().await;
                     if let Some(tx) = guard.take() {
                         let _ = tx.send(msg.data.clone());
                     }
                 }
-                Ok(msg) => {
+                Some(Ok(msg)) => {
                     if let Ok(val) = serde_json::from_str::<Value>(&msg.data) {
                         if let Some(id) = val.get("id").and_then(|v| v.as_u64()) {
                             let mut p = pending_bg.lock().await;
@@ -303,11 +311,19 @@ async fn connect_sse(config: &McpServerConfig) -> Result<McpClient> {
                         }
                     }
                 }
-                Err(e) => {
-                    tracing::warn!("SSE stream error for MCP: {}", e);
-                    break;
+                Some(Err(e)) => {
+                    tracing::warn!("SSE stream error for MCP '{}': {}", server_name, e);
+                    break format!("stream error: {}", e);
                 }
+                None => break "stream ended".to_string(),
             }
+        };
+        // Mark the connection dead and fail any in-flight calls so the LLM
+        // sees an error result instead of hanging forever.
+        closed_bg.store(true, Ordering::SeqCst);
+        let mut p = pending_bg.lock().await;
+        for (_id, tx) in p.drain() {
+            let _ = tx.send(Err(close_reason.clone()));
         }
     });
 
@@ -332,6 +348,7 @@ async fn connect_sse(config: &McpServerConfig) -> Result<McpClient> {
             http: crate::http::new_client(),
             id: AtomicU64::new(1),
             pending,
+            closed,
         }),
     };
 

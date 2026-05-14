@@ -100,18 +100,24 @@ fn extract_yaml_field(yaml: &str, field: &str) -> Option<String> {
     None
 }
 
-/// Match skills against user prompt and current directory
-pub fn match_skills(skills: &[SkillMetadata], prompt: &str) -> Vec<usize> {
-    let prompt_lower = prompt.to_lowercase();
+/// Match skills against the user prompt, augmenting with cwd file-presence signals.
+/// E.g. when `Cargo.toml` is in cwd, "rust"/"cargo" are treated as if they appeared
+/// in the prompt — so a Rust-tagged skill activates even for a prompt like
+/// "refactor this".
+pub fn match_skills(skills: &[SkillMetadata], prompt: &str, cwd: &std::path::Path) -> Vec<usize> {
+    let mut haystack = prompt.to_lowercase();
+    for token in cwd_signals(cwd) {
+        haystack.push(' ');
+        haystack.push_str(token);
+    }
     let mut matched = Vec::new();
 
     for (i, skill) in skills.iter().enumerate() {
         let desc_lower = skill.description.to_lowercase();
         let desc_words: Vec<&str> = desc_lower.split_whitespace().collect();
 
-        // Simple keyword matching
         let match_count = desc_words.iter()
-            .filter(|w| w.len() > 3 && prompt_lower.contains(*w))
+            .filter(|w| w.len() > 3 && haystack.contains(*w))
             .count();
 
         if match_count >= 2 {
@@ -120,6 +126,41 @@ pub fn match_skills(skills: &[SkillMetadata], prompt: &str) -> Vec<usize> {
     }
 
     matched
+}
+
+/// Return ecosystem tokens implied by marker files in `cwd`.
+fn cwd_signals(cwd: &std::path::Path) -> Vec<&'static str> {
+    let mut tokens = Vec::new();
+    let probe = |name: &str| cwd.join(name).exists();
+
+    if probe("Cargo.toml") {
+        tokens.extend(["rust", "cargo", "crate"]);
+    }
+    if probe("package.json") {
+        tokens.extend(["javascript", "typescript", "node", "npm"]);
+    }
+    if probe("pyproject.toml") || probe("setup.py") || probe("requirements.txt") {
+        tokens.extend(["python", "pip"]);
+    }
+    if probe("go.mod") {
+        tokens.extend(["go", "golang"]);
+    }
+    if probe("pom.xml") || probe("build.gradle") || probe("build.gradle.kts") {
+        tokens.extend(["java", "maven", "gradle"]);
+    }
+    if probe("Gemfile") {
+        tokens.extend(["ruby", "rails"]);
+    }
+    if probe("Dockerfile") || probe("compose.yaml") || probe("docker-compose.yml") {
+        tokens.extend(["docker", "container"]);
+    }
+    if probe("terraform.tf") || cwd.join("main.tf").exists() {
+        tokens.extend(["terraform", "infrastructure"]);
+    }
+    if cwd.join(".github").is_dir() {
+        tokens.push("github");
+    }
+    tokens
 }
 
 /// Build system prompt additions from activated skills
@@ -170,21 +211,37 @@ mod tests {
         ];
 
         // Should match rust-reviewer (2 keywords: "rust", "code")
-        let matched = match_skills(&skills, "Please review my Rust code");
+        let empty = std::path::Path::new("/nonexistent_dir_for_skill_test");
+        let matched = match_skills(&skills, "Please review my Rust code", empty);
         assert!(matched.contains(&0));
 
         // Should match security-scanner
-        let matched = match_skills(&skills, "Check security vulnerabilities in my code");
+        let matched = match_skills(&skills, "Check security vulnerabilities in my code", empty);
         assert!(matched.contains(&1));
 
         // No match for unrelated prompt
-        let matched = match_skills(&skills, "What is the weather today?");
+        let matched = match_skills(&skills, "What is the weather today?", empty);
         assert!(matched.is_empty());
     }
 
     #[test]
+    fn test_match_skills_cwd_inference() {
+        let skills = vec![
+            make_skill("rust-reviewer", "Expert Rust cargo crate reviewer."),
+        ];
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+
+        // Prompt alone says nothing about Rust — should still match because Cargo.toml
+        // contributes "rust"/"cargo" to the haystack.
+        let matched = match_skills(&skills, "refactor this please", dir.path());
+        assert!(matched.contains(&0), "expected cwd-inferred match, got {:?}", matched);
+    }
+
+    #[test]
     fn test_match_skills_empty() {
-        let matched = match_skills(&[], "anything");
+        let empty = std::path::Path::new("/nonexistent_dir_for_skill_test");
+        let matched = match_skills(&[], "anything", empty);
         assert!(matched.is_empty());
     }
 

@@ -221,7 +221,8 @@ async fn run_pipe(cli: Cli) -> Result<i32> {
             });
         let skills_path = PathBuf::from(&skills_dir);
         let all_skills = skills::load_skills(&skills_path).await;
-        let matched = skills::match_skills(&all_skills, &prompt);
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let matched = skills::match_skills(&all_skills, &prompt, &cwd);
 
         if !matched.is_empty() {
             skill_context = skills::build_skill_context(&all_skills, &matched).await;

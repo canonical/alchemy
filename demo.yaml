@@ -1,0 +1,73 @@
+resource_types:
+  - name: alchemy-image-type
+    type: registry-image
+    check_every: 24h
+    source:
+      repository: ghcr.io/canonical/alchemy
+      tag: latest
+resources:
+  - name: madrid-weather
+    type: alchemy-image-type
+    icon: weather-partly-cloudy
+    check_every: 1h
+    source:
+      provider: github-copilot
+      api_key: ((ai-provider/github-copilot.api-key))
+      model: gpt-5-mini
+      prompt: "Fetch the weather for Madrid from wttr.in using curl."
+  - name: alchemy-image
+    type: registry-image
+    icon: si/alchemy
+    check_every: 24h
+    source:
+      repository: ghcr.io/canonical/alchemy
+      tag: latest
+  - name: alchemy-repo
+    icon: github
+    type: git
+    check_every: 1h
+    source:
+      uri: https://github.com/canonical/alchemy
+      branch: main
+jobs:
+  - name: check-madrid-weather
+    public: true
+    plan:
+      - get: madrid-weather
+        trigger: true
+      - get: alchemy-image
+      - task: check
+        image: alchemy-image
+        config:
+          platform: linux
+          inputs:
+            - name: madrid-weather
+          run:
+            path: sh
+            args:
+              - -c
+              - |
+                cat madrid-weather/response.txt
+  - name: check-alchemy-repo
+    public: true
+    plan:
+      - get: alchemy-repo
+        trigger: true
+      - get: alchemy-image
+      - task: check
+        image: alchemy-image
+        config:
+          platform: linux
+          inputs:
+            - name: alchemy-repo
+          params:
+            ALCHEMY_PROVIDER: github-copilot
+            ALCHEMY_API_KEY: ((ai-provider/github-copilot.api-key))
+            ALCHEMY_MODEL: claude-opus-4.6
+          run:
+            path: sh
+            args:
+              - -c
+              - |
+                cd alchemy-repo
+                echo "Check TODO.md and SPEC.md and then investigate the implentation, and show the comprehensive summary." | alchemy --output text

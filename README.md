@@ -135,6 +135,7 @@ The published container image is `ghcr.io/canonical/alchemy:latest`. It ships `/
 resource_types:
   - name: alchemy
     type: registry-image
+    check_every: 24h
     source:
       repository: ghcr.io/canonical/alchemy
       tag: latest
@@ -142,26 +143,32 @@ resource_types:
 resources:
   - name: weather
     type: alchemy
+    icon: weather-partly-cloudy
     check_every: 1h
     source:
-      api_key: ((ai-provider/github-copilot.api-key))
       provider: github-copilot
+      api_key: ((ai-provider/github-copilot.api-key))
       model: gpt-5-mini
       prompt: "Fetch the weather for Madrid from wttr.in using curl."
+  - name: alchemy
+    type: registry-image
+    icon: si/alchemy
+    check_every: 24h
+    source:
+      repository: ghcr.io/canonical/alchemy
+      tag: latest
 
 jobs:
-  - name: weather-check
+  - name: check-weather
+    public: true
     plan:
       - get: weather
         trigger: true
-      - task: show
+      - get: alchemy
+      - task: check
+        image: alchemy
         config:
           platform: linux
-          image_resource:
-            type: registry-image
-            source:
-              repository: ghcr.io/canonical/alchemy
-              tag: latest
           inputs:
             - name: weather
           run:

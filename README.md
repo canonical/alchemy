@@ -47,6 +47,16 @@ cargo test 2>&1 | alchemy "Analyze the failures and suggest fixes"
 alchemy tui
 ```
 
+Run TUI directly from the published container image:
+
+```bash
+# OpenRouter
+docker run --env ALCHEMY_PROVIDER=openrouter --env ALCHEMY_API_KEY=sk-or-v1-... --env ALCHEMY_MODEL=google/gemma-4-31b-it --rm -it ghcr.io/canonical/alchemy:latest tui
+
+# GitHub Copilot
+docker run --env ALCHEMY_PROVIDER=github-copilot --env ALCHEMY_API_KEY=ghu_... --env ALCHEMY_MODEL=claude-sonnet-4.6 --rm -it ghcr.io/canonical/alchemy:latest tui
+```
+
 ## Providers
 
 | `ALCHEMY_PROVIDER` | API key | Default `ALCHEMY_MODEL` |

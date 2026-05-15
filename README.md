@@ -55,6 +55,9 @@ docker run --env ALCHEMY_PROVIDER=openrouter --env ALCHEMY_API_KEY=sk-or-v1-... 
 
 # GitHub Copilot
 docker run --env ALCHEMY_PROVIDER=github-copilot --env ALCHEMY_API_KEY=ghu_... --env ALCHEMY_MODEL=claude-sonnet-4.6 --rm -it ghcr.io/canonical/alchemy:latest tui
+
+# Gemini
+docker run --env ALCHEMY_PROVIDER=gemini --env ALCHEMY_API_KEY=AI... --env ALCHEMY_MODEL=gemini-3.1-flash-lite-preview --rm -it ghcr.io/canonical/alchemy:latest tui
 ```
 
 ## Providers

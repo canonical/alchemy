@@ -27,4 +27,3 @@ RUN chmod 0755 \
 
 WORKDIR /work
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["bash"]

@@ -9,12 +9,12 @@ resources:
   - name: madrid-weather
     type: alchemy-image-type
     icon: weather-partly-cloudy
-    check_every: 1h
+    check_every: 24h
     source:
       provider: github-copilot
       api_key: ((ai-provider/github-copilot.api-key))
       model: gpt-5-mini
-      prompt: "Fetch the weather for Madrid from wttr.in using curl."
+      prompt: "Fetch the weather for Madrid from wttr.in"
   - name: alchemy-image
     type: registry-image
     icon: si/alchemy
@@ -25,7 +25,7 @@ resources:
   - name: alchemy-repo
     icon: github
     type: git
-    check_every: 1h
+    check_every: 24h
     source:
       uri: https://github.com/canonical/alchemy
       branch: main

@@ -6,7 +6,7 @@ pub mod widgets;
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -237,7 +237,9 @@ impl TuiApp {
 
             if event::poll(std::time::Duration::from_millis(50))? {
                 if let Event::Key(key) = event::read()? {
-                    self.handle_key(key, &agent, &history_path);
+                    if key.kind == KeyEventKind::Press {
+                        self.handle_key(key, &agent, &history_path);
+                    }
                 }
             }
         }

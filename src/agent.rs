@@ -107,13 +107,20 @@ impl Agent {
 
         loop {
             if steps >= self.config.max_steps {
+                let error_msg = "Max steps exceeded".to_string();
+                messages.push(Message {
+                    role: MessageRole::Assistant,
+                    content: Some(format!("[{}]", error_msg)),
+                    tool_calls: None,
+                    tool_call_id: None,
+                });
                 let history = messages[1..].to_vec();
                 return (AgentResult {
                     answer: None,
                     steps,
                     tools_used: tools_used.into_iter().collect(),
                     success: false,
-                    error: Some("Max steps exceeded".to_string()),
+                    error: Some(error_msg),
                     total_tokens,
                 }, history);
             }
@@ -155,13 +162,20 @@ impl Agent {
                     let err = last_error
                         .map(|e| e.to_string())
                         .unwrap_or_else(|| "unknown error".to_string());
+                    let error_msg = format!("Provider error after retries: {}", err);
+                    messages.push(Message {
+                        role: MessageRole::Assistant,
+                        content: Some(format!("[{}]", error_msg)),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    });
                     let history = messages[1..].to_vec();
                     return (AgentResult {
                         answer: None,
                         steps,
                         tools_used: tools_used.into_iter().collect(),
                         success: false,
-                        error: Some(format!("Provider error after retries: {}", err)),
+                        error: Some(error_msg),
                         total_tokens,
                     }, history);
                 }

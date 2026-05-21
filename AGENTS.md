@@ -24,7 +24,7 @@ Alchemy is a cross-platform CI/CD AI agent written in Rust. Single static binary
   - Skills use the prefix `skill_<name>_<script>`.
 - **Parallel Execution**: Only `read_file`, `list_dir`, and `fetch_url` are `is_parallel_safe = true`. All other tools (including MCP and Skills) run sequentially.
 - **Skills System**: Skills activate if ≥2 words from their description (>3 chars) match the prompt or ecosystem marker files in cwd.
-- **Concourse CI**: The `check` script uses the SHA-256 hash of the agent's answer as the version `ref`. `in` stores `answer.txt`, `metadata.json`, `steps`, and `tools_used`.
+- **Concourse CI**: The `check` script uses the SHA-256 hash of the agent's answer as the version `ref`. `in` stores `response.txt`, `response.json`, and `metadata.json`.
 
 ## Critical Constraints & Gotchas
 

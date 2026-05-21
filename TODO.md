@@ -5,9 +5,9 @@
 - [x] **Real embedding providers** — OpenAI, Gemini, and Ollama embedders implemented in `embedder.rs`
 - [x] **Embedding provider selection** — `RagPipeline::new()` selects based on `ALCHEMY_RAG_EMBED_PROVIDER` / `ALCHEMY_PROVIDER`
 - [x] **Validation** — Exit code 2 when RAG enabled with non-embedding provider and no `ALCHEMY_RAG_EMBED_PROVIDER` set
+- [x] **Reranking** — `retriever.rs` implements MMR (Maximal Marginal Relevance) reranking. Note: per-chunk embeddings are not persisted, so inter-candidate similarity is approximated via relevance-score proximity rather than true embedding-space distance.
 - [ ] **`sqlite-vec` extension** — Spec calls for `sqlite-vec` virtual table (`vec0`); current implementation uses plain SQLite with manual brute-force cosine similarity in Rust
 - [ ] **External vector store backends** — Only SQLite implemented. Missing Qdrant and Chroma HTTP backends (`ALCHEMY_RAG_STORE=qdrant|chroma`)
-- [ ] **Reranking** — `retriever.rs` does basic search but no reranking step as described in spec
 
 ## TUI Mode
 

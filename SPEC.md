@@ -523,8 +523,10 @@ Chunk size and overlap are configurable via `ALCHEMY_RAG_CHUNK_SIZE` (default 51
 | `openai` | `text-embedding-3-small` | 1536 |
 | `gemini` | `text-embedding-004` | 768 |
 | `ollama` | `nomic-embed-text` | 768 |
+| `github-copilot` | `text-embedding-3-small` | 1536 |
+| `openrouter` | provider/model-dependent | varies |
 
-Uses the same provider infrastructure as LLM calls. Embedding provider defaults to `ALCHEMY_PROVIDER` but can be overridden with `ALCHEMY_RAG_EMBED_PROVIDER`. Only `openai`, `gemini`, and `ollama` support embeddings; if RAG is enabled with a non-embedding provider (e.g., `anthropic`, `github-copilot`, `openrouter`), `ALCHEMY_RAG_EMBED_PROVIDER` must be set explicitly or Alchemy exits with code 2.
+Uses the same provider infrastructure as LLM calls. Embedding provider defaults to `ALCHEMY_PROVIDER` but can be overridden with `ALCHEMY_RAG_EMBED_PROVIDER`. Only `openai`, `gemini`, `ollama`, `github-copilot`, and `openrouter` support embeddings; if RAG is enabled with a non-embedding provider (e.g., `anthropic`), `ALCHEMY_RAG_EMBED_PROVIDER` must be set explicitly or Alchemy exits with code 2.
 
 ### Vector Store
 
@@ -702,7 +704,7 @@ resources:
 > **Note:** `check` executes the full agent with all tools enabled. The prompt author is responsible for ensuring `check`-triggered prompts are safe for repeated execution (e.g., read-only operations like fetching data). Prompts that write files or modify state will produce side effects on every `check` interval.
 
 ```json
-[{"ref": "sha256:a1b2c3..."}]
+[{"ref": "sha256:a1b2c3d4e5f6"}]
 ```
 
 On first run (no previous version), always emits a version.

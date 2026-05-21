@@ -239,13 +239,17 @@ impl TuiApp {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
-        // Load session history (display only; LLM context starts fresh per session).
+        // Load session — display messages AND LLM conversation context.
         let history_path = format!("{}/{}", self.session_dir, self.session_name);
         let _ = tokio::fs::create_dir_all(&history_path).await;
         if let Ok(msgs) =
             history::load_messages(&format!("{}/messages.jsonl", history_path)).await
         {
             self.messages = msgs;
+        }
+        let context_path = format!("{}/context.json", history_path);
+        if let Ok(ctx) = history::load_context(&context_path).await {
+            self.conversation_history = ctx;
         }
 
         // Load global prompt history (shared across all sessions).
@@ -372,6 +376,13 @@ impl TuiApp {
                         &self.messages,
                     )
                     .await;
+
+                    // Persist LLM context so the next launch resumes seamlessly.
+                    let ctx = self.conversation_history.clone();
+                    let ctx_path = context_path.clone();
+                    tokio::spawn(async move {
+                        let _ = history::save_context(&ctx_path, &ctx).await;
+                    });
 
                     // Update session.json updated_at timestamp.
                     if let Ok(mut m) = history::load_session_metadata(&session_json_path).await {
@@ -571,6 +582,14 @@ impl TuiApp {
                 self.tools_log.clear();
                 self.files_log.clear();
                 self.turn_count = 0;
+                self.conversation_history.clear();
+                // Remove persisted context so next launch starts fresh too.
+                let ctx_path = format!("{}/context.json", history_path);
+                let msgs_path = format!("{}/messages.jsonl", history_path);
+                tokio::spawn(async move {
+                    let _ = tokio::fs::remove_file(&ctx_path).await;
+                    let _ = history::save_messages(&msgs_path, &[]).await;
+                });
             }
             (KeyModifiers::ALT, KeyCode::Char('c')) => {
                 self.theme_idx = (self.theme_idx + 1) % theme::THEMES.len();

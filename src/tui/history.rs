@@ -1,5 +1,6 @@
 use anyhow::Result;
 use crate::tui::TuiMessage;
+use crate::types::Message;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -37,6 +38,18 @@ pub async fn save_messages(path: &str, messages: &[TuiMessage]) -> Result<()> {
     }
     tokio::fs::write(path, content).await?;
     Ok(())
+}
+
+/// Persist the full LLM conversation context so it can be restored next session.
+pub async fn save_context(path: &str, messages: &[Message]) -> Result<()> {
+    tokio::fs::write(path, serde_json::to_string(messages)?).await?;
+    Ok(())
+}
+
+/// Load the persisted LLM conversation context.
+pub async fn load_context(path: &str) -> Result<Vec<Message>> {
+    let content = tokio::fs::read_to_string(path).await?;
+    Ok(serde_json::from_str(&content)?)
 }
 
 /// Load the global prompt history from `path`.

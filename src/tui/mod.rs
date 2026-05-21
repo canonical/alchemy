@@ -58,6 +58,8 @@ pub struct TuiApp {
     turn_baseline_steps: u32,
     turn_baseline_tokens: u64,
     abort_handle: Option<tokio::task::AbortHandle>,
+    /// When true, the help overlay is rendered and most keys are consumed by it.
+    pub show_help: bool,
 }
 
 const NUM_PANELS: usize = 3;
@@ -115,6 +117,7 @@ impl TuiApp {
             turn_baseline_steps: 0,
             turn_baseline_tokens: 0,
             abort_handle: None,
+            show_help: false,
         }
     }
 
@@ -276,7 +279,27 @@ impl TuiApp {
     }
 
     fn handle_key(&mut self, key: KeyEvent, agent: &Arc<Agent>, history_path: &str) {
+        // Help overlay captures all keys: ? or Esc close it.
+        if self.show_help {
+            match (key.modifiers, key.code) {
+                (KeyModifiers::NONE, KeyCode::Char('?'))
+                | (KeyModifiers::NONE, KeyCode::Esc) => {
+                    self.show_help = false;
+                }
+                _ => {}
+            }
+            return;
+        }
+
         match (key.modifiers, key.code) {
+            // Toggle help overlay.
+            (KeyModifiers::NONE, KeyCode::Char('?')) if self.input.is_empty() => {
+                self.show_help = true;
+            }
+            // Esc: clear input if non-empty, otherwise no-op.
+            (KeyModifiers::NONE, KeyCode::Esc) => {
+                self.input.clear();
+            }
             (KeyModifiers::CONTROL, KeyCode::Char('d')) => {
                 self.running = false;
             }

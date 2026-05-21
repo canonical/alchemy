@@ -17,7 +17,9 @@ pub fn render(input: &str, t: &ThemePalette) -> Vec<Line<'static>> {
     let style_stack: &mut Vec<Style> = &mut Vec::new();
 
     let flush = |cur: &mut Vec<Span<'static>>, lines: &mut Vec<Line<'static>>| {
-        lines.push(Line::from(std::mem::take(cur)));
+        if !cur.is_empty() {
+            lines.push(Line::from(std::mem::take(cur)));
+        }
     };
 
     for event in parser {
@@ -110,7 +112,6 @@ pub fn render(input: &str, t: &ThemePalette) -> Vec<Line<'static>> {
                 }
                 TagEnd::Paragraph => {
                     flush(&mut current, &mut lines);
-                    lines.push(Line::from(""));
                 }
                 _ => {}
             },
@@ -208,5 +209,17 @@ mod tests {
         let text = lines_to_text(&out);
         assert!(text.contains("• first"), "{:?}", text);
         assert!(text.contains("• second"), "{:?}", text);
+    }
+
+    #[test]
+    fn compact_paragraph_spacing() {
+        let out = render("first paragraph\n\nsecond paragraph", &THEMES[0]);
+        let text = lines_to_text(&out);
+        assert!(
+            !text.contains("\n\n"),
+            "expected compact paragraph spacing, got: {:?}",
+            text
+        );
+        assert!(text.contains("first paragraph\nsecond paragraph"), "{:?}", text);
     }
 }

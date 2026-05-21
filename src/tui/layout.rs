@@ -152,19 +152,11 @@ fn draw_conversation(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let visible_height = area.height.saturating_sub(2) as usize;
 
     let mut lines = Vec::new();
-    let n = app.messages.len();
-    for (i, msg) in app.messages.iter().enumerate() {
+    for msg in &app.messages {
         if msg.role == "user" {
             lines.extend(render_message_lines("You: ", &msg.content, t, true, inner_width));
         } else {
             lines.extend(render_assistant_message("Alchemy:", &msg.content, t));
-        }
-        // Thin separator between messages; nothing after the last one.
-        if i + 1 < n || app.streaming_content.is_some() {
-            lines.push(Line::from(Span::styled(
-                "─".repeat(inner_width.min(40)),
-                Style::default().fg(t.normal_border),
-            )));
         }
     }
 

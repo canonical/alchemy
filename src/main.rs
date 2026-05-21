@@ -376,9 +376,20 @@ async fn run_tui(
     let provider = providers::create_provider(&provider_name, api_key.as_deref(), base_url.as_deref())?;
     let model = std::env::var("ALCHEMY_MODEL").unwrap_or_else(|_| provider.default_model().to_string());
 
-    let system_prompt = system
+    let mut system_prompt = system
         .or_else(|| std::env::var("ALCHEMY_SYSTEM_PROMPT").ok())
         .unwrap_or_else(|| DEFAULT_SYSTEM_PROMPT.to_string());
+
+    // Offer to load AGENTS.md from the current directory.
+    if let Ok(agents_content) = std::fs::read_to_string("AGENTS.md") {
+        eprint!("Alchemy: AGENTS.md found in current directory. Load it into system prompt? [Y/n]: ");
+        let mut answer = String::new();
+        let _ = std::io::stdin().read_line(&mut answer);
+        if !matches!(answer.trim().to_lowercase().as_str(), "n" | "no") {
+            system_prompt = format!("{}\n\n---\n# Project instructions (AGENTS.md)\n\n{}", system_prompt, agents_content.trim());
+            eprintln!("Alchemy: AGENTS.md loaded ({} bytes).", agents_content.len());
+        }
+    }
 
     let sess_dir = session_dir
         .or_else(|| std::env::var("ALCHEMY_SESSION_DIR").ok())

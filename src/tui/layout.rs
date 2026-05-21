@@ -327,14 +327,15 @@ fn draw_help_overlay(
     let desc   = Style::default().fg(t.help_desc);
     let sep    = Style::default().fg(t.help_sep);
 
-    let inner_w = popup_area.width.saturating_sub(4) as usize;
-    let divider = Line::from(Span::styled("─".repeat(inner_w), sep));
+    // Each column is roughly half the inner width; dividers fill their column.
+    let col_w = popup_area.width.saturating_sub(4) as usize / 2;
+    let div = || Line::from(Span::styled("─".repeat(col_w), sep));
 
     macro_rules! kline {
         ($k:expr, $d:expr) => {
             Line::from(vec![
                 Span::raw("  "),
-                Span::styled(format!("{:<20}", $k), key),
+                Span::styled(format!("{:<16}", $k), key),
                 Span::styled($d, desc),
             ])
         };
@@ -345,91 +346,109 @@ fn draw_help_overlay(
         };
     }
 
-    let lines: Vec<Line> = vec![
+    // ── Left column ──────────────────────────────────────────────────────────
+    let left_lines: Vec<Line> = vec![
         Line::from(""),
         section!("Navigation"),
-        divider.clone(),
-        kline!("Tab",                  "Cycle panel focus (conv → tools → files)"),
-        kline!("PgUp / PgDn",          "Scroll conversation up / down (10 lines)"),
-        kline!("Alt+↑ / Alt+↓",        "Scroll conversation up / down (10 lines)"),
-        kline!("Ctrl+↑ / Ctrl+↓",      "Scroll focused panel (5 lines)"),
+        div(),
+        kline!("Tab",            "Cycle focus: conv / tools / files"),
+        kline!("PgUp / PgDn",   "Scroll conversation ±10 lines"),
+        kline!("Alt+↑ / Alt+↓", "Scroll conversation ±10 lines"),
+        kline!("Ctrl+↑ / ↓",    "Scroll focused panel ±5 lines"),
         Line::from(""),
         section!("Panel Visibility"),
-        divider.clone(),
-        kline!("Alt+T",                "Toggle Tools panel"),
-        kline!("Alt+F",                "Toggle Files panel"),
-        kline!("Alt+S",                "Show Skills info overlay"),
-        kline!("Alt+M",                "Show MCP info overlay"),
+        div(),
+        kline!("Alt+T",         "Toggle Tools panel"),
+        kline!("Alt+F",         "Toggle Files panel"),
+        kline!("Alt+S",         "Skills info overlay"),
+        kline!("Alt+M",         "MCP info overlay"),
         Line::from(""),
         section!("Prompt History"),
-        divider.clone(),
-        kline!("↑ / ↓",               "Browse previously sent prompts"),
+        div(),
+        kline!("↑ / ↓",        "Browse previously sent prompts"),
         Line::from(""),
         section!("Cursor Editing"),
-        divider.clone(),
-        kline!("← / →",               "Move cursor left / right"),
-        kline!("Home / End",           "Jump to start / end of input"),
-        kline!("Backspace",            "Delete character before cursor"),
-        kline!("Delete",               "Delete character at cursor"),
-        Line::from(""),
-        section!("Messaging"),
-        divider.clone(),
-        kline!("Enter",                "Send message"),
-        kline!("Esc",                  "Clear input / exit history"),
-        Line::from(""),
-        section!("Appearance"),
-        divider.clone(),
-        kline!("Alt+C",                "Cycle theme (Dark→Light→Dracula→Solarized)"),
-        Line::from(""),
-        section!("Session"),
-        divider.clone(),
-        kline!("Ctrl+S",               "Save session to disk"),
-        kline!("Ctrl+L",               "Clear conversation display"),
-        Line::from(""),
-        section!("Agent / Exit"),
-        divider.clone(),
-        kline!("Ctrl+C (busy)",        "Interrupt running agent"),
-        kline!("Ctrl+C (idle)",        "Exit"),
-        kline!("Ctrl+D",               "Exit"),
-        Line::from(""),
-        section!("This Overlay"),
-        divider.clone(),
-        kline!("↑ ↓ PgUp PgDn",       "Scroll"),
-        kline!("Home / End",           "Jump to top / bottom"),
-        kline!("? / Esc / q",          "Close overlay"),
+        div(),
+        kline!("← / →",        "Move cursor left / right"),
+        kline!("Home / End",    "Jump to start / end of line"),
+        kline!("Backspace",     "Delete char before cursor"),
+        kline!("Delete",        "Delete char at cursor"),
         Line::from(""),
     ];
 
-    // Compute max scroll: total lines minus visible inner height.
-    let inner_h = popup_area.height.saturating_sub(2); // subtract border rows
-    let total = lines.len() as u16;
+    // ── Right column ─────────────────────────────────────────────────────────
+    let right_lines: Vec<Line> = vec![
+        Line::from(""),
+        section!("Messaging"),
+        div(),
+        kline!("Enter",         "Send message"),
+        kline!("Esc",           "Clear input / exit history"),
+        Line::from(""),
+        section!("Appearance"),
+        div(),
+        kline!("Alt+C",         "Cycle theme (Dark/Light/Dracula/Solarized)"),
+        Line::from(""),
+        section!("Session"),
+        div(),
+        kline!("Ctrl+S",        "Save session to disk"),
+        kline!("Ctrl+L",        "Clear conversation"),
+        Line::from(""),
+        section!("Agent / Exit"),
+        div(),
+        kline!("Ctrl+C (busy)", "Interrupt running agent"),
+        kline!("Ctrl+C (idle)", "Exit"),
+        kline!("Ctrl+D",        "Exit"),
+        Line::from(""),
+        section!("This Overlay"),
+        div(),
+        kline!("↑↓ PgUp PgDn", "Scroll"),
+        kline!("Home / End",    "Jump to top / bottom"),
+        kline!("? / Esc / q",  "Close"),
+        Line::from(""),
+    ];
+
+    // Compute max scroll: tallest column minus visible inner height.
+    let inner_h = popup_area.height.saturating_sub(2);
+    let total = left_lines.len().max(right_lines.len()) as u16;
     let max_scroll = total.saturating_sub(inner_h);
     *max_scroll_out = max_scroll;
     let clamped_scroll = (scroll as u16).min(max_scroll);
 
-    // Scroll indicator shown in title when content overflows.
     let title = if max_scroll > 0 {
-        let pct = if max_scroll == 0 { 100 } else {
-            ((clamped_scroll as u32 * 100) / max_scroll as u32).min(100)
-        };
+        let pct = ((clamped_scroll as u32 * 100) / max_scroll as u32).min(100);
         format!("  ⌨  Key Bindings  [{:3}%]  ", pct)
     } else {
         "  ⌨  Key Bindings  ".to_string()
     };
 
-    let p = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(title)
-                .title_style(header)
-                .border_style(Style::default().fg(t.help_border))
-                .style(Style::default().bg(t.panel_bg)),
-        )
-        .style(Style::default().bg(t.panel_bg))
-        .scroll((clamped_scroll, 0));
+    // Render outer border block first; get its inner area for column splitting.
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .title_style(header)
+        .border_style(Style::default().fg(t.help_border))
+        .style(Style::default().bg(t.panel_bg));
+    let inner_area = block.inner(popup_area);
+    f.render_widget(block, popup_area);
 
-    f.render_widget(p, popup_area);
+    // Split inner area into two equal columns.
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(inner_area);
+
+    f.render_widget(
+        Paragraph::new(left_lines)
+            .style(Style::default().bg(t.panel_bg))
+            .scroll((clamped_scroll, 0)),
+        cols[0],
+    );
+    f.render_widget(
+        Paragraph::new(right_lines)
+            .style(Style::default().bg(t.panel_bg))
+            .scroll((clamped_scroll, 0)),
+        cols[1],
+    );
 }
 
 fn draw_info_overlay(

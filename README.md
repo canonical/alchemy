@@ -117,6 +117,86 @@ All knobs are environment variables; CLI flags override env vars.
 | `ALCHEMY_SKILLS_DIR` | `~/.alchemy/skills` | Skills directory |
 | `ALCHEMY_SESSION_DIR` | `~/.alchemy/sessions` | TUI session storage |
 
+#### MCP configuration
+
+MCP servers can be registered in three ways, in priority order:
+
+**1. Inline via `ALCHEMY_MCP_SERVERS`** — a JSON array of server objects:
+
+```bash
+export ALCHEMY_MCP_SERVERS='[
+  {
+    "name": "zhtw",
+    "transport": "stdio",
+    "cmd": "zhtw-mcp"
+  }
+]'
+alchemy "Check this text for zh-TW issues: 軟件預設使用內存緩存。"
+```
+
+**2. Config file via `ALCHEMY_MCP_CONFIG`** (or the default `~/.alchemy/mcp.json`):
+
+```json
+{
+  "servers": [
+    {
+      "name": "zhtw",
+      "transport": "stdio",
+      "cmd": "zhtw-mcp"
+    }
+  ]
+}
+```
+
+Save as `~/.alchemy/mcp.json` — Alchemy picks it up automatically. Override the path with:
+
+```bash
+export ALCHEMY_MCP_CONFIG=/path/to/my-mcp.json
+```
+
+**3. SSE (HTTP) transport** — for servers that expose an HTTP endpoint:
+
+```json
+{
+  "servers": [
+    {
+      "name": "my-sse-server",
+      "transport": "sse",
+      "url": "http://localhost:8080/sse"
+    }
+  ]
+}
+```
+
+**Server object fields:**
+
+| Field | Required | Description |
+|---|---|---|
+| `name` | ✓ | Server identifier; tools appear as `mcp_<name>_<tool>` |
+| `transport` | ✓ | `stdio` or `sse` |
+| `cmd` | stdio only | Command to launch the server (e.g. `zhtw-mcp` or `/usr/local/bin/zhtw-mcp`) |
+| `url` | sse only | HTTP SSE endpoint URL |
+| `env` | — | Extra environment variables passed to the server process |
+
+**Example with `env`** (stdio server that needs an API key):
+
+```json
+{
+  "servers": [
+    {
+      "name": "zhtw",
+      "transport": "stdio",
+      "cmd": "zhtw-mcp",
+      "env": {
+        "ZHTW_PROFILE": "strict"
+      }
+    }
+  ]
+}
+```
+
+> **[zhtw-mcp](https://github.com/sysprog21/zhtw-mcp)** is a linguistic linter for Traditional Chinese (zh-TW) that enforces Taiwan MoE vocabulary, punctuation, and character-shape standards. Install it with `cargo install zhtw-mcp` or download a pre-built binary, then add it to `~/.alchemy/mcp.json` as shown above.
+
 ### RAG
 
 `ALCHEMY_RAG_ENABLED=true` enables RAG in pipe mode. The embedding provider must support embeddings (`openai`, `gemini`, or `ollama`); otherwise set `ALCHEMY_RAG_EMBED_PROVIDER` explicitly or Alchemy exits with code 2.

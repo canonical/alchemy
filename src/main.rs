@@ -642,7 +642,9 @@ async fn run_rag(action: RagAction) -> Result<()> {
         RagAction::Search { query } => {
             let results = pipeline.search(&query).await?;
             for r in &results {
-                println!("[{:.3}] {} — {}", r.score, r.source, &r.content[..r.content.len().min(100)]);
+                // Truncate at a Unicode scalar boundary to avoid panics with multi-byte chars.
+                let preview: String = r.content.chars().take(100).collect();
+                println!("[{:.3}] {} — {}", r.score, r.source, preview);
             }
             if results.is_empty() {
                 println!("No results found.");

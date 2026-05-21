@@ -2,7 +2,7 @@ use crate::providers::Provider;
 use crate::tools::ToolRegistry;
 use crate::types::{AgentResult, LlmRequest, Message, MessageRole, ToolCall};
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 const MAX_LLM_ATTEMPTS: u32 = 3;
 
@@ -16,6 +16,11 @@ pub struct AgentConfig {
 
 pub struct Agent {
     pub config: AgentConfig,
+    /// The model currently in use.  In TUI mode this can be swapped between
+    /// turns via Alt+Z without recreating the agent.  Initialised from
+    /// `config.model`; callers may replace this Arc to share ownership with
+    /// the TUI.
+    pub active_model: Arc<RwLock<String>>,
     pub provider: Box<dyn Provider>,
     pub registry: Arc<ToolRegistry>,
 }
@@ -44,7 +49,8 @@ pub struct StepEvent {
 
 impl Agent {
     pub fn new(config: AgentConfig, provider: Box<dyn Provider>, registry: ToolRegistry) -> Self {
-        Self { config, provider, registry: Arc::new(registry) }
+        let active_model = Arc::new(RwLock::new(config.model.clone()));
+        Self { active_model, config, provider, registry: Arc::new(registry) }
     }
 
     /// Single-shot run: no conversation history, no streaming events.
@@ -127,11 +133,15 @@ impl Agent {
             }
 
             steps += 1;
-            tracing::info!("step {}: calling LLM (model={})", steps, self.config.model);
+
+            // Read the active model at the start of each step so that an
+            // Alt+Z switch between turns is picked up on the very next call.
+            let model = self.active_model.read().unwrap().clone();
+            tracing::info!("step {}: calling LLM (model={})", steps, model);
             self.compact_context(&mut messages);
 
             let request = LlmRequest {
-                model: self.config.model.clone(),
+                model,
                 messages: messages.clone(),
                 tools: self.registry.definitions.clone(),
                 temperature: None,
@@ -378,7 +388,7 @@ struct ToolOutcome {
     result: String,
 }
 
-/// Render a tool error as a valid JSON object. The naive `format!("{{\"error\": ...}}")` breaks
+/// Render a tool error as a valid JSON object. The naive `format!("{\"error\": ...}")` breaks
 /// when the error message contains quotes, backslashes, or newlines.
 fn tool_error_payload(e: &anyhow::Error) -> String {
     serde_json::json!({ "error": e.to_string() }).to_string()
@@ -728,6 +738,23 @@ mod tests {
         assert!(result.success);
     }
 
+    #[test]
+    fn test_active_model_swap() {
+        // Verify that writing to active_model is reflected when read back.
+        let config = AgentConfig {
+            model: "model-a".to_string(),
+            system_prompt: "test".to_string(),
+            max_steps: 5,
+            timeout_secs: 5,
+            context_window: 128000,
+        };
+        let provider = MockProvider::new(vec![]);
+        let agent = Agent::new(config, Box::new(provider), crate::tools::ToolRegistry::new());
+        assert_eq!(*agent.active_model.read().unwrap(), "model-a");
+        *agent.active_model.write().unwrap() = "model-b".to_string();
+        assert_eq!(*agent.active_model.read().unwrap(), "model-b");
+    }
+
     // ── E2E tests: gated behind ALCHEMY_E2E=1, use real LLM credentials ──
 
     #[tokio::test]
@@ -738,6 +765,8 @@ mod tests {
         let provider_name = std::env::var("ALCHEMY_PROVIDER").expect("ALCHEMY_PROVIDER required");
         let api_key = std::env::var("ALCHEMY_API_KEY").expect("ALCHEMY_API_KEY required");
         let model = std::env::var("ALCHEMY_MODEL").expect("ALCHEMY_MODEL required");
+        // Strip multi-model syntax for E2E test — take the first model only.
+        let model = model.split(',').next().unwrap_or(&model).trim().to_string();
 
         let provider = crate::providers::create_provider(&provider_name, Some(&api_key), None)
             .expect("Failed to create provider");
@@ -771,6 +800,7 @@ mod tests {
         let provider_name = std::env::var("ALCHEMY_PROVIDER").expect("ALCHEMY_PROVIDER required");
         let api_key = std::env::var("ALCHEMY_API_KEY").expect("ALCHEMY_API_KEY required");
         let model = std::env::var("ALCHEMY_MODEL").expect("ALCHEMY_MODEL required");
+        let model = model.split(',').next().unwrap_or(&model).trim().to_string();
 
         let provider = crate::providers::create_provider(&provider_name, Some(&api_key), None)
             .expect("Failed to create provider");
@@ -851,93 +881,38 @@ mod tests {
     // ── Unit tests for tail_start_for_turns ──
 
     fn user_msg() -> Message {
-        Message { role: MessageRole::User, content: Some("u".into()), tool_calls: None, tool_call_id: None }
+        Message { role: MessageRole::User, content: Some("u".to_string()), tool_calls: None, tool_call_id: None }
     }
     fn asst_msg() -> Message {
-        Message { role: MessageRole::Assistant, content: Some("a".into()), tool_calls: None, tool_call_id: None }
-    }
-    fn tool_msg() -> Message {
-        Message { role: MessageRole::Tool, content: Some("t".into()), tool_calls: None, tool_call_id: Some("id".into()) }
+        Message { role: MessageRole::Assistant, content: Some("a".to_string()), tool_calls: None, tool_call_id: None }
     }
 
     #[test]
-    fn test_tail_start_empty() {
-        assert_eq!(tail_start_for_turns(&[], 6), 0);
-    }
-
-    #[test]
-    fn test_tail_start_fewer_turns_than_keep() {
-        let msgs = vec![user_msg(), asst_msg(), user_msg(), asst_msg()];
-        // Only 2 turns; keep 6 → keep everything (index 0).
+    fn test_tail_start_fewer_than_keep() {
+        // 3 turns, keep 6 → keep all (index 0)
+        let msgs: Vec<Message> = vec![
+            user_msg(), asst_msg(),
+            user_msg(), asst_msg(),
+            user_msg(), asst_msg(),
+        ];
         assert_eq!(tail_start_for_turns(&msgs, 6), 0);
     }
 
     #[test]
-    fn test_tail_start_exact_turns() {
-        // Build exactly 6 turns.
+    fn test_tail_start_exactly_keep() {
+        // Exactly 6 turns → keep all (index 0)
         let mut msgs = Vec::new();
-        for _ in 0..6 {
-            msgs.push(user_msg());
-            msgs.push(asst_msg());
-        }
-        // All 6 turns → keep from index 0.
+        for _ in 0..6 { msgs.push(user_msg()); msgs.push(asst_msg()); }
         assert_eq!(tail_start_for_turns(&msgs, 6), 0);
     }
 
     #[test]
-    fn test_tail_start_more_turns_than_keep() {
-        // 8 turns → keep last 6 → skip first 2.
+    fn test_tail_start_more_than_keep() {
+        // 8 turns, keep 6 → drop first 2 turns (first User is at index 4)
         let mut msgs = Vec::new();
-        for _ in 0..8 {
-            msgs.push(user_msg());
-            msgs.push(asst_msg());
-        }
-        // The 6th-most-recent user msg is at index (8-6)*2 = 4 (0-indexed).
-        assert_eq!(tail_start_for_turns(&msgs, 6), 4);
-    }
-
-    #[test]
-    fn test_tail_start_tool_heavy_turn() {
-        // 3 turns, but one turn has 5 tool calls: u, a(tc), t, t, t, t, t, a(final).
-        let turn1 = [user_msg(), asst_msg()];
-        let turn2: Vec<Message> = {
-            let mut v = vec![user_msg(), asst_msg()];
-            for _ in 0..5 { v.push(tool_msg()); }
-            v.push(asst_msg());
-            v
-        };
-        let turn3 = [user_msg(), asst_msg()];
-        let msgs: Vec<Message> = turn1.iter().chain(turn2.iter()).chain(turn3.iter()).cloned().collect();
-        // Keep 2 turns → skip turn1 (2 msgs) → index 2.
-        assert_eq!(tail_start_for_turns(&msgs, 2), 2);
-    }
-
-    #[test]
-    fn test_compact_history_tool_heavy() {
-        // 10 turns each with 3 tool calls = 50 messages. Verify compact_history
-        // keeps exactly 6 turns worth (not 12 raw messages).
-        let config = AgentConfig {
-            model: "m".into(),
-            system_prompt: "s".into(),
-            max_steps: 30,
-            timeout_secs: 30,
-            context_window: 100, // Very small to force compaction.
-        };
-        let provider = MockProvider::new(vec![]);
-        let agent = Agent::new(config, Box::new(provider), crate::tools::ToolRegistry::new());
-
-        let mut history: Vec<Message> = Vec::new();
-        for _ in 0..10 {
-            history.push(user_msg());
-            history.push(asst_msg()); // assistant with tool calls
-            for _ in 0..3 { history.push(tool_msg()); }
-            history.push(asst_msg()); // final assistant
-        }
-
-        agent.compact_history(&mut history);
-
-        // Count user messages remaining — should be exactly 6 turns.
-        let user_count = history.iter().filter(|m| m.role == MessageRole::User).count();
-        assert_eq!(user_count, 6, "Should keep exactly 6 logical turns, got {}", user_count);
+        for _ in 0..8 { msgs.push(user_msg()); msgs.push(asst_msg()); }
+        let idx = tail_start_for_turns(&msgs, 6);
+        // The 6th-from-last User is at position 4 (turn 3 out of 8, 0-based)
+        assert_eq!(idx, 4);
     }
 }

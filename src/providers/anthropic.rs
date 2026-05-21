@@ -185,22 +185,20 @@ impl Provider for AnthropicProvider {
                                 }
                             }
                         }
-                        Some("content_block_stop") => {
-                            if in_tool {
-                                tool_calls.push(ToolCall {
-                                    id: current_tool_id.clone(),
-                                    r#type: "function".to_string(),
-                                    function: FunctionCall {
-                                        name: current_tool_name.clone(),
-                                        arguments: if current_tool_args.is_empty() {
-                                            "{}".to_string()
-                                        } else {
-                                            current_tool_args.clone()
-                                        },
+                        Some("content_block_stop") if in_tool => {
+                            tool_calls.push(ToolCall {
+                                id: current_tool_id.clone(),
+                                r#type: "function".to_string(),
+                                function: FunctionCall {
+                                    name: current_tool_name.clone(),
+                                    arguments: if current_tool_args.is_empty() {
+                                        "{}".to_string()
+                                    } else {
+                                        current_tool_args.clone()
                                     },
-                                });
-                                in_tool = false;
-                            }
+                                },
+                            });
+                            in_tool = false;
                         }
                         Some("message_delta") => {
                             if let Some(u) = event.get("usage") {
@@ -225,4 +223,3 @@ impl Provider for AnthropicProvider {
         })
     }
 }
-

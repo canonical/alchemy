@@ -58,10 +58,18 @@ fn draw_status_bar(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let tools_ind = if app.show_tools { "[T]" } else { "[-]" };
     let files_ind = if app.show_files { "[F]" } else { "[-]" };
 
+    // Show "model (idx/total)" when multiple models are configured so the user
+    // always knows which model is active and how many are available.
+    let model_display = if app.models.len() > 1 {
+        format!("{} ({}/{})", app.model_name, app.model_idx + 1, app.models.len())
+    } else {
+        app.model_name.clone()
+    };
+
     let left = format!(
         " Alchemy  │ {}  │ {}  │ ⏱ {} steps  │ 📊 {}k tokens  │ 🎨 {}  │ {} {}",
         app.session_name,
-        app.model_name,
+        model_display,
         app.steps,
         app.total_tokens / 1000,
         t.name,
@@ -506,9 +514,10 @@ fn draw_help_overlay(
         kline!("Shift+Enter",   "Insert newline (multiline input)"),
         kline!("Esc",           "Clear input / exit history"),
         Line::from(""),
-        section!("Appearance"),
+        section!("Appearance & Model"),
         div(),
         kline!("Alt+C",         "Cycle theme (Dark/Light/Dracula/Solarized)"),
+        kline!("Alt+Z",         "Cycle active model (from ALCHEMY_MODEL list)"),
         Line::from(""),
         section!("Session"),
         div(),

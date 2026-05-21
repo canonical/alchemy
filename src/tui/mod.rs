@@ -14,7 +14,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use crate::agent::{Agent, AgentConfig, FileEvent, StepEvent, ToolEvent};
 use crate::providers::Provider;
 use crate::tools::ToolRegistry;
@@ -63,7 +63,15 @@ pub struct TuiApp {
     pub agent_busy: bool,
     pub tools_log: Vec<ToolLogEntry>,
     pub files_log: Vec<FileLogEntry>,
+    /// Display name of the currently active model.
     pub model_name: String,
+    /// All models parsed from `ALCHEMY_MODEL` (comma-separated).
+    pub models: Vec<String>,
+    /// Index into `models` that is currently active.
+    pub model_idx: usize,
+    /// Shared handle so `handle_key` can write the new model name into the
+    /// running `Agent` without recreating it.
+    pub active_model: Arc<RwLock<String>>,
     pub total_tokens: u64,
     pub steps: u32,
     conversation_history: Vec<Message>,
@@ -144,7 +152,17 @@ pub struct FileLogEntry {
 }
 
 impl TuiApp {
-    pub fn new(session_name: String, session_dir: String, prompt_history_path: String, model_name: String) -> Self {
+    /// `models` is the full list parsed from `ALCHEMY_MODEL`; the first entry
+    /// is the default.  The list must be non-empty.
+    pub fn new(
+        session_name: String,
+        session_dir: String,
+        prompt_history_path: String,
+        models: Vec<String>,
+    ) -> Self {
+        debug_assert!(!models.is_empty(), "TuiApp::new requires at least one model");
+        let model_name = models[0].clone();
+        let active_model = Arc::new(RwLock::new(model_name.clone()));
         let (show_tools, show_files) = theme::load_panels();
         Self {
             session_name,
@@ -158,6 +176,9 @@ impl TuiApp {
             tools_log: Vec::new(),
             files_log: Vec::new(),
             model_name,
+            models,
+            model_idx: 0,
+            active_model,
             total_tokens: 0,
             steps: 0,
             conversation_history: Vec::new(),
@@ -213,6 +234,18 @@ impl TuiApp {
         &theme::THEMES[self.theme_idx]
     }
 
+    /// Cycle to the next model in the list (wraps around).
+    /// Updates both the display name and the shared Arc so the agent picks it
+    /// up on the very next LLM call.
+    fn cycle_model(&mut self) {
+        if self.models.len() <= 1 {
+            return;
+        }
+        self.model_idx = (self.model_idx + 1) % self.models.len();
+        self.model_name = self.models[self.model_idx].clone();
+        *self.active_model.write().unwrap() = self.model_name.clone();
+    }
+
     pub async fn run(
         &mut self,
         provider: Box<dyn Provider>,
@@ -258,7 +291,11 @@ impl TuiApp {
         };
         let _ = history::save_session_metadata(&session_json_path, &metadata).await;
 
-        let agent = Arc::new(Agent::new(config, provider, registry));
+        // Build the agent and wire its active_model Arc to ours so Alt+Z
+        // changes take effect immediately without recreating the agent.
+        let mut agent = Agent::new(config, provider, registry);
+        agent.active_model = Arc::clone(&self.active_model);
+        let agent = Arc::new(agent);
 
         loop {
             // Drain real-time tool events.
@@ -539,6 +576,12 @@ impl TuiApp {
                 self.mcp_scroll = 0;
             }
 
+            // ── Model cycling (Alt+Z) ────────────────────────────────────────
+            // Blocked while the agent is running to avoid switching mid-turn.
+            (KeyModifiers::ALT, KeyCode::Char('z')) if !self.agent_busy => {
+                self.cycle_model();
+            }
+
             // ── Exit / interrupt ─────────────────────────────────────────────
             (KeyModifiers::CONTROL, KeyCode::Char('d')) => {
                 self.running = false;
@@ -590,63 +633,61 @@ impl TuiApp {
             }
 
             // ── Multiline newline ─────────────────────────────────────────────
-            (KeyModifiers::SHIFT, KeyCode::Enter) => {
-                if !self.agent_busy {
-                    self.input.insert(self.input_cursor, '\n');
-                    self.input_cursor += 1;
-                }
+            (KeyModifiers::SHIFT, KeyCode::Enter) if !self.agent_busy => {
+                self.input.insert(self.input_cursor, '\n');
+                self.input_cursor += 1;
             }
 
             // ── Send message ─────────────────────────────────────────────────
-            (KeyModifiers::NONE, KeyCode::Enter) => {
-                if !self.input.is_empty() && !self.agent_busy {
-                    let user_msg = self.input.clone();
+            (KeyModifiers::NONE, KeyCode::Enter)
+                if !self.input.is_empty() && !self.agent_busy =>
+            {
+                let user_msg = self.input.clone();
 
-                    // Push to prompt history and reset history navigation.
-                    self.prompt_history.push(user_msg.clone());
-                    self.history_idx = None;
-                    self.history_draft.clear();
-                    self.input.clear();
-                    self.input_cursor = 0;
+                // Push to prompt history and reset history navigation.
+                self.prompt_history.push(user_msg.clone());
+                self.history_idx = None;
+                self.history_draft.clear();
+                self.input.clear();
+                self.input_cursor = 0;
 
-                    // Persist to global prompt history file (fire-and-forget).
-                    let ph_path = self.prompt_history_path.clone();
-                    let ph_entry = user_msg.clone();
-                    tokio::spawn(async move {
-                        history::append_prompt_history(&ph_path, &ph_entry).await;
-                    });
+                // Persist to global prompt history file (fire-and-forget).
+                let ph_path = self.prompt_history_path.clone();
+                let ph_entry = user_msg.clone();
+                tokio::spawn(async move {
+                    history::append_prompt_history(&ph_path, &ph_entry).await;
+                });
 
-                    self.messages
-                        .push(TuiMessage { role: "user".into(), content: user_msg.clone() });
-                    self.conv_follow = true;
-                    self.turn_count += 1;
-                    self.agent_busy = true;
+                self.messages
+                    .push(TuiMessage { role: "user".into(), content: user_msg.clone() });
+                self.conv_follow = true;
+                self.turn_count += 1;
+                self.agent_busy = true;
 
-                    let history = self.conversation_history.clone();
-                    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
-                    let (tool_tx, tool_rx) = tokio::sync::mpsc::channel::<ToolEvent>(64);
-                    let (file_tx, file_rx) = tokio::sync::mpsc::channel::<FileEvent>(64);
-                    self.pending = Some(result_rx);
-                    self.tool_rx = Some(tool_rx);
-                    self.file_rx = Some(file_rx);
+                let history = self.conversation_history.clone();
+                let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+                let (tool_tx, tool_rx) = tokio::sync::mpsc::channel::<ToolEvent>(64);
+                let (file_tx, file_rx) = tokio::sync::mpsc::channel::<FileEvent>(64);
+                self.pending = Some(result_rx);
+                self.tool_rx = Some(tool_rx);
+                self.file_rx = Some(file_rx);
 
-                    let (token_tx, token_rx) = tokio::sync::mpsc::channel::<String>(256);
-                    self.token_rx = Some(token_rx);
-                    let (step_tx, step_rx) = tokio::sync::mpsc::channel::<StepEvent>(16);
-                    self.step_rx = Some(step_rx);
-                    self.streaming_content = None;
-                    self.turn_baseline_steps = self.steps;
-                    self.turn_baseline_tokens = self.total_tokens;
+                let (token_tx, token_rx) = tokio::sync::mpsc::channel::<String>(256);
+                self.token_rx = Some(token_rx);
+                let (step_tx, step_rx) = tokio::sync::mpsc::channel::<StepEvent>(16);
+                self.step_rx = Some(step_rx);
+                self.streaming_content = None;
+                self.turn_baseline_steps = self.steps;
+                self.turn_baseline_tokens = self.total_tokens;
 
-                    let arc = Arc::clone(agent);
-                    let join_handle = tokio::spawn(async move {
-                        let (result, new_history) = arc
-                            .run_turn_with_events(history, user_msg, token_tx, tool_tx, file_tx, step_tx)
-                            .await;
-                        let _ = result_tx.send((result, new_history));
-                    });
-                    self.abort_handle = Some(join_handle.abort_handle());
-                }
+                let arc = Arc::clone(agent);
+                let join_handle = tokio::spawn(async move {
+                    let (result, new_history) = arc
+                        .run_turn_with_events(history, user_msg, token_tx, tool_tx, file_tx, step_tx)
+                        .await;
+                    let _ = result_tx.send((result, new_history));
+                });
+                self.abort_handle = Some(join_handle.abort_handle());
             }
 
             // ── Esc: clear input ─────────────────────────────────────────────
@@ -783,33 +824,85 @@ impl TuiApp {
             }
 
             // ── Deletion ─────────────────────────────────────────────────────
-            (KeyModifiers::NONE, KeyCode::Backspace) => {
-                if self.input_cursor > 0 {
-                    let prev = cursor_left(&self.input, self.input_cursor);
-                    self.input.drain(prev..self.input_cursor);
-                    self.input_cursor = prev;
-                }
+            (KeyModifiers::NONE, KeyCode::Backspace)
+                if self.input_cursor > 0 && !self.agent_busy =>
+            {
+                let new_cursor = cursor_left(&self.input, self.input_cursor);
+                self.input.remove(new_cursor);
+                self.input_cursor = new_cursor;
             }
-            (KeyModifiers::NONE, KeyCode::Delete) => {
-                if self.input_cursor < self.input.len() {
-                    let next = cursor_right(&self.input, self.input_cursor);
-                    self.input.drain(self.input_cursor..next);
-                }
+            (KeyModifiers::NONE, KeyCode::Delete)
+                if self.input_cursor < self.input.len() && !self.agent_busy =>
+            {
+                self.input.remove(self.input_cursor);
             }
 
             // ── Character insertion ──────────────────────────────────────────
-            (KeyModifiers::NONE, KeyCode::Char(c))
-            | (KeyModifiers::SHIFT, KeyCode::Char(c)) => {
-                let ch = if key.modifiers == KeyModifiers::SHIFT {
-                    c.to_uppercase().next().unwrap_or(c)
-                } else {
-                    c
-                };
-                self.input.insert(self.input_cursor, ch);
-                self.input_cursor += ch.len_utf8();
+            (KeyModifiers::NONE | KeyModifiers::SHIFT, KeyCode::Char(c))
+                if !self.agent_busy =>
+            {
+                self.input.insert(self.input_cursor, c);
+                self.input_cursor += c.len_utf8();
             }
 
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_app(models: Vec<&str>) -> TuiApp {
+        TuiApp::new(
+            "test".to_string(),
+            "/tmp".to_string(),
+            "/tmp/ph".to_string(),
+            models.into_iter().map(|s| s.to_string()).collect(),
+        )
+    }
+
+    #[test]
+    fn test_single_model_no_cycle() {
+        let mut app = make_app(vec!["gpt-4o"]);
+        assert_eq!(app.model_name, "gpt-4o");
+        assert_eq!(app.model_idx, 0);
+        // Cycling with one model is a no-op.
+        app.cycle_model();
+        assert_eq!(app.model_name, "gpt-4o");
+        assert_eq!(app.model_idx, 0);
+    }
+
+    #[test]
+    fn test_multi_model_cycle() {
+        let mut app = make_app(vec!["alpha", "beta", "gamma"]);
+        assert_eq!(app.model_name, "alpha");
+
+        app.cycle_model();
+        assert_eq!(app.model_name, "beta");
+        assert_eq!(app.model_idx, 1);
+
+        app.cycle_model();
+        assert_eq!(app.model_name, "gamma");
+        assert_eq!(app.model_idx, 2);
+
+        // Wraps around.
+        app.cycle_model();
+        assert_eq!(app.model_name, "alpha");
+        assert_eq!(app.model_idx, 0);
+    }
+
+    #[test]
+    fn test_cycle_updates_arc() {
+        let mut app = make_app(vec!["m1", "m2"]);
+        let arc = Arc::clone(&app.active_model);
+        assert_eq!(*arc.read().unwrap(), "m1");
+
+        app.cycle_model();
+        assert_eq!(*arc.read().unwrap(), "m2");
+
+        app.cycle_model();
+        assert_eq!(*arc.read().unwrap(), "m1");
     }
 }

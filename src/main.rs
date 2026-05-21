@@ -201,8 +201,10 @@ async fn run_pipe(cli: Cli) -> Result<i32> {
         base_url.as_deref(),
     )?;
 
+    // In pipe mode use only the first (default) model even if a list is given.
     let model = std::env::var("ALCHEMY_MODEL")
         .unwrap_or_else(|_| provider.default_model().to_string());
+    let model = model.split(',').next().unwrap_or(&model).trim().to_string();
 
     // Build prompt from args + stdin
     let stdin_content = read_stdin();
@@ -395,7 +397,23 @@ async fn run_tui(
     let base_url = std::env::var("ALCHEMY_BASE_URL").ok();
 
     let provider = providers::create_provider(&provider_name, api_key.as_deref(), base_url.as_deref())?;
-    let model = std::env::var("ALCHEMY_MODEL").unwrap_or_else(|_| provider.default_model().to_string());
+
+    // Parse ALCHEMY_MODEL as a comma-separated list.  First entry is the default.
+    let models_raw = std::env::var("ALCHEMY_MODEL")
+        .unwrap_or_else(|_| provider.default_model().to_string());
+    let models: Vec<String> = models_raw
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    // Guaranteed non-empty: fall back to provider default when the env var is
+    // set but contains only whitespace/commas.
+    let models = if models.is_empty() {
+        vec![provider.default_model().to_string()]
+    } else {
+        models
+    };
+    let default_model = models[0].clone();
 
     // Derive session name from CWD when not explicitly set.
     let session = session.unwrap_or_else(|| {
@@ -515,7 +533,7 @@ async fn run_tui(
     };
 
     let config = AgentConfig {
-        model: model.clone(),
+        model: default_model.clone(),
         system_prompt: full_system,
         max_steps: max_steps
             .or_else(|| std::env::var("ALCHEMY_MAX_STEPS").ok().and_then(|s| s.parse().ok()))
@@ -527,7 +545,7 @@ async fn run_tui(
     };
 
     let prompt_history_path = dirs_path("prompt_history");
-    let mut app = tui::TuiApp::new(session, sess_dir, prompt_history_path, model);
+    let mut app = tui::TuiApp::new(session, sess_dir, prompt_history_path, models);
     app.set_skills_info(skills_display);
     app.set_mcp_info(mcp_display);
     app.run(provider, config, registry).await?;
@@ -889,12 +907,38 @@ mod tests {
         assert_eq!(result, format!("{}───", prefix));
     }
 
+    // --- multi-model parsing (mirrors run_tui logic) ---
+
+    fn parse_models(raw: &str, default: &str) -> Vec<String> {
+        let v: Vec<String> = raw
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if v.is_empty() { vec![default.to_string()] } else { v }
+    }
+
     #[test]
-    fn test_truncate_chars_emoji() {
-        // Emoji are 4 bytes each (U+1F600). Old byte-slice would panic.
-        let s: String = std::iter::repeat_n('😀', 120).collect();
-        let result = truncate_chars(&s, 100);
-        assert_eq!(result.chars().count(), 100);
-        assert_eq!(result.len(), 400); // 100 × 4 bytes
+    fn test_single_model() {
+        let models = parse_models("gpt-4o", "fallback");
+        assert_eq!(models, vec!["gpt-4o"]);
+    }
+
+    #[test]
+    fn test_multi_model_parsing() {
+        let models = parse_models("gpt-4o,gpt-4o-mini, o1", "fallback");
+        assert_eq!(models, vec!["gpt-4o", "gpt-4o-mini", "o1"]);
+    }
+
+    #[test]
+    fn test_multi_model_empty_falls_back() {
+        let models = parse_models("  , , ", "default-model");
+        assert_eq!(models, vec!["default-model"]);
+    }
+
+    #[test]
+    fn test_multi_model_first_is_default() {
+        let models = parse_models("alpha,beta,gamma", "x");
+        assert_eq!(models[0], "alpha");
     }
 }

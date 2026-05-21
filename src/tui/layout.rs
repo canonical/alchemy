@@ -5,7 +5,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::tui::TuiApp;
 use crate::tui::theme::ThemePalette;
 
@@ -100,15 +100,27 @@ fn render_message_lines(
     let mut lines = Vec::new();
     for source_line in content.lines() {
         let full = format!("{}{}", prefix, source_line);
-        if full.len() <= inner_width || inner_width == 0 {
+        if full.width() <= inner_width || inner_width == 0 {
             lines.push(Line::from(Span::styled(full, Style::default().fg(color))));
         } else {
-            let chars: Vec<char> = full.chars().collect();
-            for chunk in chars.chunks(inner_width) {
-                lines.push(Line::from(Span::styled(
-                    chunk.iter().collect::<String>(),
-                    Style::default().fg(color),
-                )));
+            // Wrap by display columns so wide chars (emoji) don't overflow.
+            let mut current = String::new();
+            let mut current_w = 0usize;
+            for ch in full.chars() {
+                let ch_w = ch.width().unwrap_or(1);
+                if current_w + ch_w > inner_width && current_w > 0 {
+                    lines.push(Line::from(Span::styled(
+                        current.clone(),
+                        Style::default().fg(color),
+                    )));
+                    current.clear();
+                    current_w = 0;
+                }
+                current.push(ch);
+                current_w += ch_w;
+            }
+            if !current.is_empty() {
+                lines.push(Line::from(Span::styled(current, Style::default().fg(color))));
             }
         }
     }
@@ -492,17 +504,18 @@ fn wrap_desc(text: &str, indent: usize, max_width: usize, style: Style) -> Vec<L
     let mut current_len = 0usize;
 
     for word in text.split_whitespace() {
+        let word_w = word.width();
         if current_len == 0 {
             current.push_str(word);
-            current_len = word.len();
-        } else if current_len + 1 + word.len() <= usable {
+            current_len = word_w;
+        } else if current_len + 1 + word_w <= usable {
             current.push(' ');
             current.push_str(word);
-            current_len += 1 + word.len();
+            current_len += 1 + word_w;
         } else {
             result.push(Line::from(Span::styled(current.clone(), style)));
             current = format!("{}{}", prefix, word);
-            current_len = word.len();
+            current_len = word_w;
         }
     }
     if current_len > 0 || result.is_empty() {

@@ -14,7 +14,6 @@
 - [x] **Panel focus cycling** — `Tab` key cycles focus between panels
 - [x] **Scroll support** — `PageUp/PageDown`, `Alt+↑/↓`, and `Ctrl+↑/↓` scrolling implemented; bare `↑/↓` navigates prompt history
 - [x] **Typewriter/streaming effect** — Streaming tokens received and accumulated incrementally via `streaming_content`
-- [ ] **Shift+Enter for newline** — No `(KeyModifiers::SHIFT, KeyCode::Enter)` arm exists; Shift+Enter is currently a no-op (falls through to the wildcard arm)
 - [x] **Ctrl+C interrupt** — Aborts running agent task via `abort_handle`
 - [x] **Ctrl+L clear** — Clears conversation messages
 - [x] **Ctrl+S manual save** — Saves session to disk

@@ -614,7 +614,6 @@ Interactive terminal interface launched via `alchemy tui`. Uses `ratatui` + `cro
 | Key | Action |
 |-----|--------|
 | `Enter` | Send message |
-| `Shift+Enter` | Insert newline |
 | `Ctrl+C` | Interrupt current agent run |
 | `Ctrl+D` | Exit TUI |
 | `Tab` | Cycle panel focus |

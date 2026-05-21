@@ -430,19 +430,21 @@ async fn run_tui(
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let matched = skills::match_skills(&all_skills, "", &cwd);
 
+        // Show ALL loaded skills in the info panel so the user can see what's available.
+        for s in &all_skills {
+            skills_display.push(tui::SkillEntry {
+                name: s.name.clone(),
+                description: s.description.clone(),
+                scripts: s.scripts.iter().map(|sc| sc.name.clone()).collect(),
+            });
+        }
+
         if !matched.is_empty() {
             skill_context = skills::build_skill_context(&all_skills, &matched).await;
             let matched_skills: Vec<_> = matched.iter()
                 .filter_map(|&i| all_skills.get(i))
                 .cloned()
                 .collect();
-            for s in &matched_skills {
-                skills_display.push(tui::SkillEntry {
-                    name: s.name.clone(),
-                    description: s.description.clone(),
-                    scripts: s.scripts.iter().map(|sc| sc.name.clone()).collect(),
-                });
-            }
             let skill_tools = tools::skill::create_skill_tools(&matched_skills);
             registry.add_skill_tools(skill_tools);
         }

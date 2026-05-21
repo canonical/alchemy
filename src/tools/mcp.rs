@@ -382,6 +382,9 @@ pub async fn execute_mcp_tool(tool: &McpTool, arguments: &str) -> Result<String>
         .strip_prefix(&prefix)
         .unwrap_or(&tool.definition.function.name);
 
+    tracing::info!("mcp call:   server={} tool={}", tool.server_name, actual_name);
+    tracing::debug!("mcp args:   {}", arguments);
+
     let result = tool
         .client
         .call("tools/call", json!({"name": actual_name, "arguments": args}))
@@ -400,10 +403,20 @@ pub async fn execute_mcp_tool(tool: &McpTool, arguments: &str) -> Result<String>
             })
             .collect();
         if result.get("isError").and_then(|v| v.as_bool()) == Some(true) {
+            tracing::info!("mcp result: server={} tool={} [error]", tool.server_name, actual_name);
             bail!("MCP tool error: {}", parts.join("\n"));
         }
+        tracing::info!(
+            "mcp result: server={} tool={} ({} chars) [ok]",
+            tool.server_name, actual_name, parts.iter().map(|s| s.len()).sum::<usize>()
+        );
         Ok(parts.join("\n"))
     } else {
-        Ok(serde_json::to_string(&result)?)
+        let out = serde_json::to_string(&result)?;
+        tracing::info!(
+            "mcp result: server={} tool={} ({} chars) [ok]",
+            tool.server_name, actual_name, out.len()
+        );
+        Ok(out)
     }
 }

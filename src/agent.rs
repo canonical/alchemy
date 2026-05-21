@@ -108,6 +108,7 @@ impl Agent {
         loop {
             if steps >= self.config.max_steps {
                 let error_msg = "Max steps exceeded".to_string();
+                tracing::warn!("agent: {}", error_msg);
                 messages.push(Message {
                     role: MessageRole::Assistant,
                     content: Some(format!("[{}]", error_msg)),
@@ -126,6 +127,7 @@ impl Agent {
             }
 
             steps += 1;
+            tracing::info!("step {}: calling LLM (model={})", steps, self.config.model);
             self.compact_context(&mut messages);
 
             let request = LlmRequest {
@@ -163,6 +165,7 @@ impl Agent {
                         .map(|e| e.to_string())
                         .unwrap_or_else(|| "unknown error".to_string());
                     let error_msg = format!("Provider error after retries: {}", err);
+                    tracing::warn!("step {}: LLM failed — {}", steps, error_msg);
                     messages.push(Message {
                         role: MessageRole::Assistant,
                         content: Some(format!("[{}]", error_msg)),
@@ -190,6 +193,10 @@ impl Agent {
 
             if response.tool_calls.is_empty() {
                 // Add the final assistant message so it appears in returned history.
+                tracing::info!(
+                    "step {}: LLM returned final answer ({} steps total, {} tokens)",
+                    steps, steps, total_tokens
+                );
                 messages.push(Message {
                     role: MessageRole::Assistant,
                     content: response.content.clone(),
@@ -219,6 +226,13 @@ impl Agent {
                 .iter()
                 .partition(|tc| ToolRegistry::is_parallel_safe(&tc.function.name));
 
+            tracing::info!(
+                "step {}: LLM requested {} tool call(s): {}",
+                steps,
+                response.tool_calls.len(),
+                response.tool_calls.iter().map(|tc| tc.function.name.as_str()).collect::<Vec<_>>().join(", ")
+            );
+
             let parallel_results: Vec<ToolOutcome> = if !parallel.is_empty() {
                 let futs: Vec<_> = parallel
                     .iter()
@@ -229,6 +243,7 @@ impl Agent {
                         let registry = Arc::clone(&self.registry);
                         async move {
                             let start = std::time::Instant::now();
+                            tracing::info!("tool start: {} (parallel)", tc.function.name);
                             if let Some(ref tx) = tx {
                                 let _ = tx.try_send(ToolEvent::Started {
                                     name: tc.function.name.clone(),
@@ -238,6 +253,11 @@ impl Agent {
                             let success = dispatch_result.is_ok();
                             let result = dispatch_result.unwrap_or_else(|e| tool_error_payload(&e));
                             let duration_ms = start.elapsed().as_millis() as u64;
+                            tracing::info!(
+                                "tool done:  {} ({} ms) [{}]",
+                                tc.function.name, duration_ms,
+                                if success { "ok" } else { "error" }
+                            );
                             if let Some(ref tx) = tx {
                                 let _ = tx.try_send(ToolEvent::Finished {
                                     name: tc.function.name.clone(),
@@ -268,6 +288,7 @@ impl Agent {
             for tc in sequential {
                 let name = tc.function.name.clone();
                 let start = std::time::Instant::now();
+                tracing::info!("tool start: {}", name);
                 if let Some(ref tx) = tool_tx {
                     let _ = tx.try_send(ToolEvent::Started { name: name.clone() });
                 }
@@ -276,6 +297,10 @@ impl Agent {
                 let success = dispatch_result.is_ok();
                 let result = dispatch_result.unwrap_or_else(|e| tool_error_payload(&e));
                 let duration_ms = start.elapsed().as_millis() as u64;
+                tracing::info!(
+                    "tool done:  {} ({} ms) [{}]",
+                    name, duration_ms, if success { "ok" } else { "error" }
+                );
                 if let Some(ref tx) = tool_tx {
                     let _ = tx.try_send(ToolEvent::Finished { name: name.clone(), duration_ms, success });
                 }

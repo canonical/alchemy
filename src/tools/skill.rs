@@ -93,15 +93,37 @@ pub async fn execute_skill_tool(tool: &SkillTool, arguments: &str, timeout_secs:
     match &tool.kind {
         SkillToolKind::Script { script_path } => {
             let extra_args = args["args"].as_str().unwrap_or("");
+            tracing::info!(
+                "skill call: skill={} script={} args={:?}",
+                tool.skill_name,
+                script_path.file_name().unwrap_or_default().to_string_lossy(),
+                extra_args
+            );
             let cmd = format!("{} {}", script_path.display(), extra_args);
-            crate::tools::builtin::execute("execute_cmd", &serde_json::json!({
+            let result = crate::tools::builtin::execute("execute_cmd", &serde_json::json!({
                 "cmd": cmd,
                 "timeout_secs": timeout_secs,
-            }).to_string(), timeout_secs).await
+            }).to_string(), timeout_secs).await;
+            match &result {
+                Ok(out) => tracing::info!(
+                    "skill done: skill={} script={} ({} chars) [ok]",
+                    tool.skill_name,
+                    script_path.file_name().unwrap_or_default().to_string_lossy(),
+                    out.len()
+                ),
+                Err(e) => tracing::info!(
+                    "skill done: skill={} script={} [error: {}]",
+                    tool.skill_name,
+                    script_path.file_name().unwrap_or_default().to_string_lossy(),
+                    e
+                ),
+            }
+            result
         }
         SkillToolKind::ReadResource { skill_dir, allowed } => {
             let path = args["path"].as_str()
                 .ok_or_else(|| anyhow!("read_resource: missing 'path' parameter"))?;
+            tracing::info!("skill read: skill={} path={}", tool.skill_name, path);
             if !allowed.iter().any(|p| p == path) {
                 anyhow::bail!(
                     "read_resource: '{}' is not an allowed resource for skill '{}'. Available: {}",
@@ -109,8 +131,19 @@ pub async fn execute_skill_tool(tool: &SkillTool, arguments: &str, timeout_secs:
                 );
             }
             let full = skill_dir.join(path);
-            tokio::fs::read_to_string(&full).await
-                .map_err(|e| anyhow!("read_resource: failed to read '{}': {}", path, e))
+            let result = tokio::fs::read_to_string(&full).await
+                .map_err(|e| anyhow!("read_resource: failed to read '{}': {}", path, e));
+            match &result {
+                Ok(content) => tracing::info!(
+                    "skill read: skill={} path={} ({} chars) [ok]",
+                    tool.skill_name, path, content.len()
+                ),
+                Err(e) => tracing::info!(
+                    "skill read: skill={} path={} [error: {}]",
+                    tool.skill_name, path, e
+                ),
+            }
+            result
         }
     }
 }

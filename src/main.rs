@@ -521,11 +521,64 @@ async fn run_rag(action: RagAction) -> Result<()> {
         RagAction::Index { path, glob } => {
             let p = PathBuf::from(&path);
             let count = if p.is_file() {
-                pipeline.index_file(&p).await?
+                // Single-file case: spinner while indexing.
+                let pb = indicatif::ProgressBar::new_spinner();
+                pb.set_style(
+                    indicatif::ProgressStyle::with_template("{spinner:.cyan} {msg}")
+                        .unwrap()
+                        .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]),
+                );
+                pb.set_message(format!("Indexing {}", p.display()));
+                pb.enable_steady_tick(std::time::Duration::from_millis(80));
+                let n = pipeline.index_file(&p).await?;
+                pb.finish_and_clear();
+                n
             } else {
-                pipeline.index_directory(&p, glob.as_deref()).await?
+                // Directory case: collect files first, then show progress bar.
+                let pattern = glob.as_deref().unwrap_or("**/*");
+                let full_pattern = format!("{}/{}", p.display(), pattern);
+                let files: Vec<std::path::PathBuf> = ::glob::glob(&full_pattern)
+                    .unwrap_or_else(|_| ::glob::glob("").unwrap())
+                    .flatten()
+                    .filter(|e| e.is_file())
+                    .collect();
+
+                let total = files.len() as u64;
+                let pb = indicatif::ProgressBar::new(total);
+                pb.set_style(
+                    indicatif::ProgressStyle::with_template(
+                        "{spinner:.cyan} [{bar:40.cyan/blue}] {pos}/{len} {wide_msg}",
+                    )
+                    .unwrap()
+                    .progress_chars("█▉▊▋▌▍▎▏ ")
+                    .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]),
+                );
+                pb.enable_steady_tick(std::time::Duration::from_millis(80));
+
+                let mut total_chunks = 0usize;
+                let mut failed = 0usize;
+                for file in &files {
+                    let display = file.strip_prefix(&p)
+                        .unwrap_or(file)
+                        .display()
+                        .to_string();
+                    pb.set_message(display);
+                    match pipeline.index_file(file).await {
+                        Ok(n) => total_chunks += n,
+                        Err(e) => {
+                            tracing::warn!("Failed to index {}: {}", file.display(), e);
+                            failed += 1;
+                        }
+                    }
+                    pb.inc(1);
+                }
+                pb.finish_and_clear();
+                if failed > 0 {
+                    eprintln!("Warning: {} file(s) could not be indexed (check log for details)", failed);
+                }
+                total_chunks
             };
-            println!("Indexed {} chunks", count);
+            println!("Indexed {} chunks from {}", count, path);
         }
         RagAction::Search { query } => {
             let results = pipeline.search(&query).await?;

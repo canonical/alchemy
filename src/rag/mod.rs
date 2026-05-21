@@ -78,23 +78,6 @@ impl RagPipeline {
         Ok(count)
     }
 
-    pub async fn index_directory(&mut self, path: &Path, glob_pattern: Option<&str>) -> Result<usize> {
-        let pattern = glob_pattern.unwrap_or("**/*");
-        let full_pattern = format!("{}/{}", path.display(), pattern);
-        let mut total = 0;
-
-        for entry in glob::glob(&full_pattern)?.flatten() {
-            if entry.is_file() {
-                match self.index_file(&entry).await {
-                    Ok(n) => total += n,
-                    Err(e) => tracing::warn!("Failed to index {}: {}", entry.display(), e),
-                }
-            }
-        }
-
-        Ok(total)
-    }
-
     pub async fn search(&self, query: &str) -> Result<Vec<retriever::SearchResult>> {
         let embedding = self.embedder.embed(query).await?;
         self.retriever.search(&self.store, &embedding).await

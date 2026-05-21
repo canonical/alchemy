@@ -642,8 +642,7 @@ async fn run_rag(action: RagAction) -> Result<()> {
         RagAction::Search { query } => {
             let results = pipeline.search(&query).await?;
             for r in &results {
-                // Truncate at a Unicode scalar boundary to avoid panics with multi-byte chars.
-                let preview: String = r.content.chars().take(100).collect();
+                let preview = truncate_chars(&r.content, 100);
                 println!("[{:.3}] {} — {}", r.score, r.source, preview);
             }
             if results.is_empty() {
@@ -751,6 +750,11 @@ fn dirs_path(sub: &str) -> String {
     format!("{}/.alchemy/{}", home, sub)
 }
 
+/// Truncate `s` to at most `n` Unicode scalar values, safe for multi-byte chars.
+fn truncate_chars(s: &str, n: usize) -> String {
+    s.chars().take(n).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -833,5 +837,52 @@ mod tests {
     fn test_concourse_out_command_parses() {
         let cli = Cli::try_parse_from(["alchemy", "out", "source"]).unwrap();
         assert!(matches!(cli.command, Some(Commands::Out { ref source_dir }) if source_dir == "source"));
+    }
+
+    // --- truncate_chars ---
+
+    #[test]
+    fn test_truncate_chars_ascii() {
+        assert_eq!(truncate_chars("hello world", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_chars_shorter_than_limit() {
+        assert_eq!(truncate_chars("hi", 100), "hi");
+    }
+
+    #[test]
+    fn test_truncate_chars_empty() {
+        assert_eq!(truncate_chars("", 100), "");
+    }
+
+    #[test]
+    fn test_truncate_chars_multibyte_box_drawing() {
+        // '─' is U+2500, encoded as 3 UTF-8 bytes.
+        // The old byte-slice `&s[..100]` panics when byte 100 is inside such a char.
+        let s: String = std::iter::repeat_n('─', 130).collect();
+        let result = truncate_chars(&s, 100);
+        assert_eq!(result.chars().count(), 100);
+        // Confirm the result is valid UTF-8 at its own boundary.
+        assert!(result.is_char_boundary(result.len()));
+    }
+
+    #[test]
+    fn test_truncate_chars_mixed_multibyte() {
+        // 97 ASCII chars followed by "────z": truncating at 100 chars yields 97 a's + "───".
+        let prefix = "a".repeat(97);
+        let s = format!("{}────z", prefix); // 97 + 5 = 102 chars
+        let result = truncate_chars(&s, 100);
+        assert_eq!(result.chars().count(), 100);
+        assert_eq!(result, format!("{}───", prefix));
+    }
+
+    #[test]
+    fn test_truncate_chars_emoji() {
+        // Emoji are 4 bytes each (U+1F600). Old byte-slice would panic.
+        let s: String = std::iter::repeat_n('😀', 120).collect();
+        let result = truncate_chars(&s, 100);
+        assert_eq!(result.chars().count(), 100);
+        assert_eq!(result.len(), 400); // 100 × 4 bytes
     }
 }

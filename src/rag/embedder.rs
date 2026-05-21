@@ -203,7 +203,7 @@ impl CopilotEmbedder {
 
         if !resp.status().is_success() {
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Copilot token refresh failed: {}", &body[..body.len().min(200)]);
+            anyhow::bail!("Copilot token refresh failed: {}", body.chars().take(200).collect::<String>());
         }
 
         let v: serde_json::Value = serde_json::from_str(&resp.text().await?)?;

@@ -250,4 +250,29 @@ mod tests {
         // Chunk content is preserved; embeddings are gone.
         assert_eq!(status.total_chunks, 1);
     }
+
+    #[tokio::test]
+    async fn test_store_multibyte_content_roundtrips() {
+        register_sqlite_vec();
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mb.db");
+        let store = VectorStore::new(path.to_str().unwrap(), 3).await.unwrap();
+
+        // Content containing multi-byte UTF-8 chars (box-drawing, emoji).
+        let content = "// ── Panel toggles ───────────────────────────────────────────────────────── 😀 end";
+        store.insert(content, &[1.0, 0.0, 0.0], "src/tui/mod.rs", 0).await.unwrap();
+
+        let results = store.search(&[1.0, 0.0, 0.0], 1).await.unwrap();
+        assert_eq!(results.len(), 1);
+
+        // Retrieve and safely truncate without panicking.
+        let (retrieved_content, _source) = store.get_chunk(results[0].0).await.unwrap();
+        assert_eq!(retrieved_content, content);
+
+        // Truncating at 100 chars must not panic even with multi-byte chars.
+        let preview: String = retrieved_content.chars().take(100).collect();
+        assert!(preview.chars().count() <= 100);
+        assert!(preview.is_char_boundary(preview.len()));
+    }
 }

@@ -68,9 +68,9 @@ enum Commands {
     },
     /// TUI mode
     Tui {
-        /// Session name
-        #[arg(long, default_value = "default")]
-        session: String,
+        /// Session name (defaults to the current directory name)
+        #[arg(long)]
+        session: Option<String>,
         /// Session storage path
         #[arg(long, alias = "session-dir")]
         session_dir: Option<String>,
@@ -377,7 +377,7 @@ async fn run_pipe(cli: Cli) -> Result<i32> {
 }
 
 async fn run_tui(
-    session: String,
+    session: Option<String>,
     session_dir: Option<String>,
     system: Option<String>,
     max_steps: Option<u32>,
@@ -390,6 +390,16 @@ async fn run_tui(
 
     let provider = providers::create_provider(&provider_name, api_key.as_deref(), base_url.as_deref())?;
     let model = std::env::var("ALCHEMY_MODEL").unwrap_or_else(|_| provider.default_model().to_string());
+
+    // Derive session name from CWD when not explicitly set.
+    let session = session.unwrap_or_else(|| {
+        std::env::current_dir()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .map(|name| slugify_session(&name))
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "default".to_string())
+    });
 
     let mut system_prompt = system
         .or_else(|| std::env::var("ALCHEMY_SYSTEM_PROMPT").ok())
@@ -682,6 +692,27 @@ where
 {
     let input = read_stdin().ok_or_else(|| anyhow::anyhow!("Expected JSON on stdin"))?;
     Ok(serde_json::from_str(&input)?)
+}
+
+/// Convert an arbitrary directory name into a safe session slug:
+/// lowercase, only `[a-z0-9-]`, collapse runs of `-`, trim edges.
+fn slugify_session(name: &str) -> String {
+    let slug: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .collect();
+    // Collapse consecutive dashes and trim leading/trailing dashes.
+    let mut prev_dash = false;
+    let trimmed: String = slug.chars().filter(|&c| {
+        if c == '-' {
+            if prev_dash { return false; }
+            prev_dash = true;
+        } else {
+            prev_dash = false;
+        }
+        true
+    }).collect();
+    trimmed.trim_matches('-').to_string()
 }
 
 fn load_mcp_configs() -> Vec<types::McpServerConfig> {

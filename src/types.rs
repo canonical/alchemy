@@ -99,6 +99,8 @@ pub struct ConcourseSource {
     pub system_prompt: Option<String>,
     pub max_steps: Option<u32>,
     pub timeout_secs: Option<u64>,
+    /// Output format for written files: "json", "text", or omitted (both).
+    pub output_format: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

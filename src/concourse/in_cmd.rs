@@ -15,17 +15,26 @@ pub async fn run(input: ConcourseInInput, dest_dir: &str) -> Result<ConcourseInO
     let dest = std::path::Path::new(dest_dir);
     tokio::fs::create_dir_all(dest).await?;
 
-    tokio::fs::write(dest.join("response.txt"), &answer).await?;
+    // output_format from source: "json" → only response.json, "text" → only response.txt,
+    // absent/anything else → write both (default).
+    let fmt = input.source.output_format.as_deref().unwrap_or("both");
+    let write_text = fmt != "json";
+    let write_json = fmt != "text";
 
-    let json_output = serde_json::json!({
-        "success": result.success,
-        "answer": answer,
-        "steps": result.steps,
-        "tools_used": result.tools_used,
-        "model": model,
-        "duration_secs": duration_secs,
-    });
-    tokio::fs::write(dest.join("response.json"), serde_json::to_string_pretty(&json_output)?).await?;
+    if write_text {
+        tokio::fs::write(dest.join("response.txt"), &answer).await?;
+    }
+    if write_json {
+        let json_output = serde_json::json!({
+            "success": result.success,
+            "answer": answer,
+            "steps": result.steps,
+            "tools_used": result.tools_used,
+            "model": model,
+            "duration_secs": duration_secs,
+        });
+        tokio::fs::write(dest.join("response.json"), serde_json::to_string_pretty(&json_output)?).await?;
+    }
 
     let metadata_json = serde_json::json!({
         "steps": result.steps,

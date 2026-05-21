@@ -5,6 +5,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
+use unicode_width::UnicodeWidthStr;
 use crate::tui::TuiApp;
 use crate::tui::theme::ThemePalette;
 
@@ -264,26 +265,21 @@ fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     } else {
         let cursor = app.input_cursor.min(app.input.len());
         let before = &app.input[..cursor];
-        let (cursor_char, after) = if cursor < app.input.len() {
-            let next = {
-                let mut p = cursor + 1;
-                while p < app.input.len() && !app.input.is_char_boundary(p) { p += 1; }
-                p
-            };
-            (&app.input[cursor..next], &app.input[next..])
-        } else {
-            ("█", "")
-        };
 
-        let spans = vec![
-            Span::styled(format!("> {}", before), Style::default().fg(t.input_fg)),
-            Span::styled(
-                cursor_char.to_string(),
-                Style::default().bg(t.input_cursor_bg).fg(t.input_cursor_fg),
-            ),
-            Span::styled(after.to_string(), Style::default().fg(t.input_fg)),
-        ];
-        let p = Paragraph::new(Line::from(spans));
+        // Render the input as plain text; the terminal's own cursor marks position.
+        let p = Paragraph::new(Line::from(vec![
+            Span::styled("> ".to_string(), Style::default().fg(t.input_fg)),
+            Span::styled(app.input.clone(), Style::default().fg(t.input_fg)),
+        ]));
+
+        // Place the terminal cursor: border(1) + "> "(2) + display-width of text before cursor.
+        let before_cols: u16 = before.width() as u16;
+        let cx = area.x + 1 + 2 + before_cols;
+        let cy = area.y + 1;
+        if cx < area.x + area.width.saturating_sub(1) {
+            f.set_cursor_position((cx, cy));
+        }
+
         (p, Style::default().fg(t.input_fg), t.input_fg)
     };
 

@@ -28,8 +28,6 @@ pub struct ThemePalette {
     pub file_old: Color,
     // Input box
     pub input_fg: Color,
-    pub input_cursor_bg: Color,
-    pub input_cursor_fg: Color,
     pub input_busy_fg: Color,
     // Help overlay
     pub help_border: Color,
@@ -67,8 +65,6 @@ const DARK: ThemePalette = ThemePalette {
     file_mid: Color::LightYellow,
     file_old: Color::Green,
     input_fg: Color::White,
-    input_cursor_bg: Color::White,
-    input_cursor_fg: Color::Black,
     input_busy_fg: Color::Yellow,
     help_border: Color::Yellow,
     help_header: Color::Yellow,
@@ -102,8 +98,6 @@ const LIGHT: ThemePalette = ThemePalette {
     file_mid: Color::Rgb(100, 100, 0),
     file_old: Color::Rgb(0, 130, 50),
     input_fg: Color::Rgb(20, 20, 20),
-    input_cursor_bg: Color::Rgb(20, 20, 20),
-    input_cursor_fg: Color::Rgb(245, 245, 245),
     input_busy_fg: Color::Rgb(180, 100, 0),
     help_border: Color::Rgb(200, 120, 0),
     help_header: Color::Rgb(160, 80, 0),
@@ -138,8 +132,6 @@ const DRACULA: ThemePalette = ThemePalette {
     file_mid: Color::Rgb(241, 250, 140),   // Yellow
     file_old: Color::Rgb(80, 250, 123),
     input_fg: Color::Rgb(248, 248, 242),
-    input_cursor_bg: Color::Rgb(248, 248, 242),
-    input_cursor_fg: Color::Rgb(40, 42, 54), // Background
     input_busy_fg: Color::Rgb(255, 184, 108),
     help_border: Color::Rgb(255, 121, 198),
     help_header: Color::Rgb(255, 121, 198),
@@ -174,8 +166,6 @@ const SOLARIZED: ThemePalette = ThemePalette {
     file_mid: Color::Rgb(181, 137, 0),
     file_old: Color::Rgb(133, 153, 0),
     input_fg: Color::Rgb(131, 148, 150),
-    input_cursor_bg: Color::Rgb(131, 148, 150),
-    input_cursor_fg: Color::Rgb(0, 43, 54),
     input_busy_fg: Color::Rgb(181, 137, 0),
     help_border: Color::Rgb(181, 137, 0),
     help_header: Color::Rgb(181, 137, 0),

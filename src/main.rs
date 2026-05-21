@@ -395,8 +395,23 @@ async fn run_tui(
     let mut registry = ToolRegistry::new();
 
     let mcp_configs = load_mcp_configs();
+    let mut mcp_display: Vec<tui::McpEntry> = Vec::new();
     if !mcp_configs.is_empty() {
         let mcp_tools = tools::mcp::discover_tools(&mcp_configs).await;
+        // Collect display info grouped by server.
+        let mut server_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        for t in &mcp_tools {
+            server_map
+                .entry(t.server_name.clone())
+                .or_default()
+                .push(t.definition.function.name.clone());
+        }
+        let mut servers: Vec<String> = server_map.keys().cloned().collect();
+        servers.sort();
+        for srv in servers {
+            let tools_list = server_map.remove(&srv).unwrap_or_default();
+            mcp_display.push(tui::McpEntry { server: srv, tools: tools_list });
+        }
         registry.add_mcp_tools(mcp_tools);
     }
 
@@ -405,6 +420,7 @@ async fn run_tui(
         .unwrap_or(true);
 
     let mut skill_context = String::new();
+    let mut skills_display: Vec<tui::SkillEntry> = Vec::new();
     if skills_enabled {
         let skills_dir = std::env::var("ALCHEMY_SKILLS_DIR")
             .unwrap_or_else(|_| dirs_path("skills"));
@@ -416,9 +432,18 @@ async fn run_tui(
 
         if !matched.is_empty() {
             skill_context = skills::build_skill_context(&all_skills, &matched).await;
-            let skill_tools = tools::skill::create_skill_tools(
-                &matched.iter().filter_map(|&i| all_skills.get(i)).cloned().collect::<Vec<_>>()
-            );
+            let matched_skills: Vec<_> = matched.iter()
+                .filter_map(|&i| all_skills.get(i))
+                .cloned()
+                .collect();
+            for s in &matched_skills {
+                skills_display.push(tui::SkillEntry {
+                    name: s.name.clone(),
+                    description: s.description.clone(),
+                    scripts: s.scripts.iter().map(|sc| sc.name.clone()).collect(),
+                });
+            }
+            let skill_tools = tools::skill::create_skill_tools(&matched_skills);
             registry.add_skill_tools(skill_tools);
         }
     }
@@ -442,6 +467,8 @@ async fn run_tui(
     };
 
     let mut app = tui::TuiApp::new(session, sess_dir, model);
+    app.set_skills_info(skills_display);
+    app.set_mcp_info(mcp_display);
     app.run(provider, config, registry).await?;
     Ok(0)
 }

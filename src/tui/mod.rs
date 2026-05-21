@@ -37,10 +37,24 @@ fn cursor_right(s: &str, pos: usize) -> usize {
     p
 }
 
+/// A loaded skill shown in the Ctrl+Shift+S overlay.
+#[derive(Clone)]
+pub struct SkillEntry {
+    pub name: String,
+    pub description: String,
+    pub scripts: Vec<String>,
+}
+
+/// A group of tools from one MCP server, shown in the Ctrl+Shift+M overlay.
+#[derive(Clone)]
+pub struct McpEntry {
+    pub server: String,
+    pub tools: Vec<String>,
+}
+
 pub struct TuiApp {
     pub session_name: String,
     pub session_dir: String,
-    /// Display messages (role + content) rendered in the conversation panel.
     pub messages: Vec<TuiMessage>,
     pub input: String,
     /// Byte offset of the cursor within `input`.
@@ -52,19 +66,12 @@ pub struct TuiApp {
     pub model_name: String,
     pub total_tokens: u64,
     pub steps: u32,
-    /// Full LLM message history for multi-turn context (no system message).
     conversation_history: Vec<Message>,
-    /// Receives the final result + updated history from the background agent task.
     pending: Option<tokio::sync::oneshot::Receiver<(AgentResult, Vec<Message>)>>,
-    /// Receives real-time tool events from the background agent task.
     tool_rx: Option<tokio::sync::mpsc::Receiver<ToolEvent>>,
-    /// Receives real-time file events from the background agent task.
     file_rx: Option<tokio::sync::mpsc::Receiver<FileEvent>>,
-    /// Receives streaming tokens from the background agent task.
     token_rx: Option<tokio::sync::mpsc::Receiver<String>>,
-    /// Receives per-step progress (cumulative steps + tokens) from the agent.
     step_rx: Option<tokio::sync::mpsc::Receiver<StepEvent>>,
-    /// Accumulates in-progress streaming text for the ghost message.
     streaming_content: Option<String>,
     pub focused_panel: usize,   // 0=conversation, 1=tools, 2=files
     pub conv_scroll: usize,
@@ -73,25 +80,30 @@ pub struct TuiApp {
     pub conv_follow: bool,
     pub conv_max_scroll: u16,
     pub tick: usize,
-    /// Committed step/token baselines from completed turns. The visible
-    /// `steps`/`total_tokens` are baseline + in-progress turn deltas while
-    /// a turn is running, so the status bar updates per-step.
     turn_baseline_steps: u32,
     turn_baseline_tokens: u64,
     abort_handle: Option<tokio::task::AbortHandle>,
-    /// When true, the help overlay is rendered and most keys are consumed by it.
+    /// Panel visibility toggles (Ctrl+Shift+T / Ctrl+Shift+F).
+    pub show_tools: bool,
+    pub show_files: bool,
+    /// Help overlay state.
     pub show_help: bool,
-    /// Scroll offset for the help overlay.
     pub help_scroll: usize,
-    /// Max scroll offset for the help overlay (computed each draw frame).
     pub help_max_scroll: u16,
-    /// Index into `theme::THEMES` for the active color palette.
+    /// Skills info overlay state (Ctrl+Shift+S).
+    pub show_skills: bool,
+    pub skills_scroll: usize,
+    pub skills_max_scroll: u16,
+    pub skills_info: Vec<SkillEntry>,
+    /// MCP info overlay state (Ctrl+Shift+M).
+    pub show_mcp: bool,
+    pub mcp_scroll: usize,
+    pub mcp_max_scroll: u16,
+    pub mcp_info: Vec<McpEntry>,
+    /// Active color theme.
     pub theme_idx: usize,
-    /// Prompts sent this session, oldest first. Up/Down navigate through them.
     prompt_history: Vec<String>,
-    /// Index into `prompt_history` while browsing; `None` means current draft.
     history_idx: Option<usize>,
-    /// Saved live input while navigating history, restored on Down past the end.
     history_draft: String,
 }
 
@@ -151,14 +163,32 @@ impl TuiApp {
             turn_baseline_steps: 0,
             turn_baseline_tokens: 0,
             abort_handle: None,
+            show_tools: true,
+            show_files: true,
             show_help: false,
             help_scroll: 0,
             help_max_scroll: 0,
+            show_skills: false,
+            skills_scroll: 0,
+            skills_max_scroll: 0,
+            skills_info: Vec::new(),
+            show_mcp: false,
+            mcp_scroll: 0,
+            mcp_max_scroll: 0,
+            mcp_info: Vec::new(),
             theme_idx: theme::load_theme(),
             prompt_history: Vec::new(),
             history_idx: None,
             history_draft: String::new(),
         }
+    }
+
+    pub fn set_skills_info(&mut self, entries: Vec<SkillEntry>) {
+        self.skills_info = entries;
+    }
+
+    pub fn set_mcp_info(&mut self, entries: Vec<McpEntry>) {
+        self.mcp_info = entries;
     }
 
     /// Returns the currently active color palette.
@@ -324,6 +354,88 @@ impl TuiApp {
     }
 
     fn handle_key(&mut self, key: KeyEvent, agent: &Arc<Agent>, history_path: &str) {
+        // Skills overlay captures all keys.
+        if self.show_skills {
+            match (key.modifiers, key.code) {
+                (KeyModifiers::NONE, KeyCode::Esc)
+                | (KeyModifiers::NONE, KeyCode::Char('q')) => {
+                    self.show_skills = false;
+                    self.skills_scroll = 0;
+                }
+                (m, KeyCode::Char('s') | KeyCode::Char('S'))
+                    if m == KeyModifiers::CONTROL | KeyModifiers::SHIFT =>
+                {
+                    self.show_skills = false;
+                    self.skills_scroll = 0;
+                }
+                (KeyModifiers::NONE, KeyCode::Up) => {
+                    self.skills_scroll = self.skills_scroll.saturating_sub(1);
+                }
+                (KeyModifiers::NONE, KeyCode::Down) => {
+                    self.skills_scroll = self.skills_scroll
+                        .saturating_add(1)
+                        .min(self.skills_max_scroll as usize);
+                }
+                (KeyModifiers::NONE, KeyCode::PageUp) => {
+                    self.skills_scroll = self.skills_scroll.saturating_sub(10);
+                }
+                (KeyModifiers::NONE, KeyCode::PageDown) => {
+                    self.skills_scroll = self.skills_scroll
+                        .saturating_add(10)
+                        .min(self.skills_max_scroll as usize);
+                }
+                (KeyModifiers::NONE, KeyCode::Home) => {
+                    self.skills_scroll = 0;
+                }
+                (KeyModifiers::NONE, KeyCode::End) => {
+                    self.skills_scroll = self.skills_max_scroll as usize;
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        // MCP overlay captures all keys.
+        if self.show_mcp {
+            match (key.modifiers, key.code) {
+                (KeyModifiers::NONE, KeyCode::Esc)
+                | (KeyModifiers::NONE, KeyCode::Char('q')) => {
+                    self.show_mcp = false;
+                    self.mcp_scroll = 0;
+                }
+                (m, KeyCode::Char('m') | KeyCode::Char('M'))
+                    if m == KeyModifiers::CONTROL | KeyModifiers::SHIFT =>
+                {
+                    self.show_mcp = false;
+                    self.mcp_scroll = 0;
+                }
+                (KeyModifiers::NONE, KeyCode::Up) => {
+                    self.mcp_scroll = self.mcp_scroll.saturating_sub(1);
+                }
+                (KeyModifiers::NONE, KeyCode::Down) => {
+                    self.mcp_scroll = self.mcp_scroll
+                        .saturating_add(1)
+                        .min(self.mcp_max_scroll as usize);
+                }
+                (KeyModifiers::NONE, KeyCode::PageUp) => {
+                    self.mcp_scroll = self.mcp_scroll.saturating_sub(10);
+                }
+                (KeyModifiers::NONE, KeyCode::PageDown) => {
+                    self.mcp_scroll = self.mcp_scroll
+                        .saturating_add(10)
+                        .min(self.mcp_max_scroll as usize);
+                }
+                (KeyModifiers::NONE, KeyCode::Home) => {
+                    self.mcp_scroll = 0;
+                }
+                (KeyModifiers::NONE, KeyCode::End) => {
+                    self.mcp_scroll = self.mcp_max_scroll as usize;
+                }
+                _ => {}
+            }
+            return;
+        }
+
         // Help overlay captures all keys for scrolling and dismissal.
         if self.show_help {
             match (key.modifiers, key.code) {
@@ -365,6 +477,30 @@ impl TuiApp {
             (KeyModifiers::NONE, KeyCode::Char('?')) if self.input.is_empty() => {
                 self.show_help = true;
                 self.help_scroll = 0;
+            }
+
+            // ── Panel visibility toggles ─────────────────────────────────────
+            (m, KeyCode::Char('t') | KeyCode::Char('T'))
+                if m == KeyModifiers::CONTROL | KeyModifiers::SHIFT =>
+            {
+                self.show_tools = !self.show_tools;
+            }
+            (m, KeyCode::Char('f') | KeyCode::Char('F'))
+                if m == KeyModifiers::CONTROL | KeyModifiers::SHIFT =>
+            {
+                self.show_files = !self.show_files;
+            }
+            (m, KeyCode::Char('s') | KeyCode::Char('S'))
+                if m == KeyModifiers::CONTROL | KeyModifiers::SHIFT =>
+            {
+                self.show_skills = true;
+                self.skills_scroll = 0;
+            }
+            (m, KeyCode::Char('m') | KeyCode::Char('M'))
+                if m == KeyModifiers::CONTROL | KeyModifiers::SHIFT =>
+            {
+                self.show_mcp = true;
+                self.mcp_scroll = 0;
             }
 
             // ── Exit / interrupt ─────────────────────────────────────────────
@@ -466,16 +602,13 @@ impl TuiApp {
                 }
                 match self.history_idx {
                     None => {
-                        // Save current draft and jump to most-recent history entry.
                         self.history_draft = self.input.clone();
                         let idx = self.prompt_history.len() - 1;
                         self.history_idx = Some(idx);
                         self.input = self.prompt_history[idx].clone();
                         self.input_cursor = self.input.len();
                     }
-                    Some(0) => {
-                        // Already at the oldest entry; stay here.
-                    }
+                    Some(0) => {}
                     Some(i) => {
                         let idx = i - 1;
                         self.history_idx = Some(idx);
@@ -486,11 +619,8 @@ impl TuiApp {
             }
             (KeyModifiers::NONE, KeyCode::Down) => {
                 match self.history_idx {
-                    None => {
-                        // Already on the live draft; nothing to do.
-                    }
+                    None => {}
                     Some(i) if i + 1 >= self.prompt_history.len() => {
-                        // Past the newest entry → restore draft.
                         self.input = self.history_draft.clone();
                         self.history_idx = None;
                         self.history_draft.clear();
@@ -563,7 +693,6 @@ impl TuiApp {
                 if self.input_cursor < self.input.len() {
                     let next = cursor_right(&self.input, self.input_cursor);
                     self.input.drain(self.input_cursor..next);
-                    // cursor stays in place
                 }
             }
 
@@ -575,8 +704,6 @@ impl TuiApp {
                 } else {
                     c
                 };
-                // Guard: don't let a lone '?' open help mid-word — already
-                // handled above because that branch only fires when input.is_empty().
                 self.input.insert(self.input_cursor, ch);
                 self.input_cursor += ch.len_utf8();
             }

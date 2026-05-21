@@ -22,7 +22,21 @@ pub fn draw(f: &mut Frame, app: &mut TuiApp) {
     draw_main_area(f, app, chunks[1]);
     draw_input(f, app, chunks[2]);
 
-    // Help overlay drawn last so it floats above everything.
+    // Overlays drawn last so they float above everything.
+    if app.show_skills {
+        let t = app.theme();
+        let scroll = app.skills_scroll;
+        let mut max_scroll = app.skills_max_scroll;
+        draw_skills_overlay(f, f.area(), &app.skills_info.clone(), t, scroll, &mut max_scroll);
+        app.skills_max_scroll = max_scroll;
+    }
+    if app.show_mcp {
+        let t = app.theme();
+        let scroll = app.mcp_scroll;
+        let mut max_scroll = app.mcp_max_scroll;
+        draw_mcp_overlay(f, f.area(), &app.mcp_info.clone(), t, scroll, &mut max_scroll);
+        app.mcp_max_scroll = max_scroll;
+    }
     if app.show_help {
         draw_help_overlay(f, f.area(), app.theme(), app.help_scroll, &mut app.help_max_scroll);
     }
@@ -30,13 +44,20 @@ pub fn draw(f: &mut Frame, app: &mut TuiApp) {
 
 fn draw_status_bar(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let t = app.theme();
+
+    // Panel indicators: bright when visible, dim when hidden.
+    let tools_ind = if app.show_tools { "[T]" } else { "[-]" };
+    let files_ind = if app.show_files { "[F]" } else { "[-]" };
+
     let left = format!(
-        " Alchemy  │ {}  │ {}  │ ⏱ {} steps  │ 📊 {}k tokens  │ 🎨 {}",
+        " Alchemy  │ {}  │ {}  │ ⏱ {} steps  │ 📊 {}k tokens  │ 🎨 {}  │ {} {}",
         app.session_name,
         app.model_name,
         app.steps,
         app.total_tokens / 1000,
         t.name,
+        tools_ind,
+        files_ind,
     );
     let right = "? help ";
 
@@ -50,6 +71,11 @@ fn draw_status_bar(f: &mut Frame, app: &mut TuiApp, area: Rect) {
 }
 
 fn draw_main_area(f: &mut Frame, app: &mut TuiApp, area: Rect) {
+    let show_any_side = app.show_tools || app.show_files;
+    if !show_any_side {
+        draw_conversation(f, app, area);
+        return;
+    }
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -146,16 +172,23 @@ fn draw_conversation(f: &mut Frame, app: &mut TuiApp, area: Rect) {
 }
 
 fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
-    let t = app.theme();
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ])
-        .split(area);
+    match (app.show_tools, app.show_files) {
+        (true, true) => {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(area);
+            draw_tools_panel(f, app, chunks[0]);
+            draw_files_panel(f, app, chunks[1]);
+        }
+        (true, false) => draw_tools_panel(f, app, area),
+        (false, true) => draw_files_panel(f, app, area),
+        (false, false) => {}
+    }
+}
 
-    // Tool execution panel.
+fn draw_tools_panel(f: &mut Frame, app: &mut TuiApp, area: Rect) {
+    let t = app.theme();
     let spinner = crate::tui::widgets::spinner_frame(app.tick);
     let tool_lines: Vec<Line> = app.tools_log.iter().map(|entry| {
         if entry.status == "⏳" {
@@ -171,23 +204,20 @@ fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
             ])
         }
     }).collect();
-    let tools_border = if app.focused_panel == 1 {
+    let border = if app.focused_panel == 1 {
         Style::default().fg(t.focused_border)
     } else {
         Style::default().fg(t.normal_border)
     };
-    let tools_max = (tool_lines.len() as u16).saturating_sub(chunks[0].height.saturating_sub(2));
+    let max = (tool_lines.len() as u16).saturating_sub(area.height.saturating_sub(2));
     let tools = Paragraph::new(tool_lines)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("🔧 Tools")
-                .border_style(tools_border),
-        )
-        .scroll(((app.tools_scroll as u16).min(tools_max), 0));
-    f.render_widget(tools, chunks[0]);
+        .block(Block::default().borders(Borders::ALL).title("🔧 Tools").border_style(border))
+        .scroll(((app.tools_scroll as u16).min(max), 0));
+    f.render_widget(tools, area);
+}
 
-    // File activity panel — fade newly-added rows.
+fn draw_files_panel(f: &mut Frame, app: &mut TuiApp, area: Rect) {
+    let t = app.theme();
     const FADE_TICKS: usize = 20;
     let file_lines: Vec<Line> = app.files_log.iter().map(|fl| {
         let age = app.tick.saturating_sub(fl.added_tick);
@@ -202,21 +232,16 @@ fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         };
         Line::from(Span::styled(format!("{} {}", fl.operation, fl.path), style))
     }).collect();
-    let files_border = if app.focused_panel == 2 {
+    let border = if app.focused_panel == 2 {
         Style::default().fg(t.focused_border)
     } else {
         Style::default().fg(t.normal_border)
     };
-    let files_max = (file_lines.len() as u16).saturating_sub(chunks[1].height.saturating_sub(2));
+    let max = (file_lines.len() as u16).saturating_sub(area.height.saturating_sub(2));
     let files = Paragraph::new(file_lines)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("📁 Files")
-                .border_style(files_border),
-        )
-        .scroll(((app.files_scroll as u16).min(files_max), 0));
-    f.render_widget(files, chunks[1]);
+        .block(Block::default().borders(Borders::ALL).title("📁 Files").border_style(border))
+        .scroll(((app.files_scroll as u16).min(max), 0));
+    f.render_widget(files, area);
 }
 
 fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
@@ -317,45 +342,52 @@ fn draw_help_overlay(
         Line::from(""),
         section!("Navigation"),
         divider.clone(),
-        kline!("Tab",              "Cycle panel focus (conv → tools → files)"),
-        kline!("Ctrl+↑ / Ctrl+↓", "Scroll focused panel (5 lines)"),
+        kline!("Tab",                  "Cycle panel focus (conv → tools → files)"),
+        kline!("Ctrl+↑ / Ctrl+↓",     "Scroll focused panel (5 lines)"),
+        Line::from(""),
+        section!("Panel Visibility"),
+        divider.clone(),
+        kline!("Ctrl+Shift+T",         "Toggle Tools panel"),
+        kline!("Ctrl+Shift+F",         "Toggle Files panel"),
+        kline!("Ctrl+Shift+S",         "Show Skills info overlay"),
+        kline!("Ctrl+Shift+M",         "Show MCP info overlay"),
         Line::from(""),
         section!("Prompt History"),
         divider.clone(),
-        kline!("↑ / ↓",           "Browse previously sent prompts"),
+        kline!("↑ / ↓",               "Browse previously sent prompts"),
         Line::from(""),
         section!("Cursor Editing"),
         divider.clone(),
-        kline!("← / →",           "Move cursor left / right"),
-        kline!("Home / End",       "Jump to start / end of input"),
-        kline!("Backspace",        "Delete character before cursor"),
-        kline!("Delete",           "Delete character at cursor"),
+        kline!("← / →",               "Move cursor left / right"),
+        kline!("Home / End",           "Jump to start / end of input"),
+        kline!("Backspace",            "Delete character before cursor"),
+        kline!("Delete",               "Delete character at cursor"),
         Line::from(""),
         section!("Messaging"),
         divider.clone(),
-        kline!("Enter",            "Send message"),
-        kline!("Esc",              "Clear input / exit history"),
+        kline!("Enter",                "Send message"),
+        kline!("Esc",                  "Clear input / exit history"),
         Line::from(""),
         section!("Appearance"),
         divider.clone(),
-        kline!("Ctrl+T",           "Cycle theme (Dark→Light→Dracula→Solarized)"),
+        kline!("Ctrl+T",               "Cycle theme (Dark→Light→Dracula→Solarized)"),
         Line::from(""),
         section!("Session"),
         divider.clone(),
-        kline!("Ctrl+S",           "Save session to disk"),
-        kline!("Ctrl+L",           "Clear conversation display"),
+        kline!("Ctrl+S",               "Save session to disk"),
+        kline!("Ctrl+L",               "Clear conversation display"),
         Line::from(""),
         section!("Agent / Exit"),
         divider.clone(),
-        kline!("Ctrl+C (busy)",    "Interrupt running agent"),
-        kline!("Ctrl+C (idle)",    "Exit"),
-        kline!("Ctrl+D",           "Exit"),
+        kline!("Ctrl+C (busy)",        "Interrupt running agent"),
+        kline!("Ctrl+C (idle)",        "Exit"),
+        kline!("Ctrl+D",               "Exit"),
         Line::from(""),
         section!("This Overlay"),
         divider.clone(),
-        kline!("↑ ↓ PgUp PgDn",   "Scroll"),
-        kline!("Home / End",       "Jump to top / bottom"),
-        kline!("? / Esc / q",      "Close overlay"),
+        kline!("↑ ↓ PgUp PgDn",       "Scroll"),
+        kline!("Home / End",           "Jump to top / bottom"),
+        kline!("? / Esc / q",          "Close overlay"),
         Line::from(""),
     ];
 
@@ -389,3 +421,148 @@ fn draw_help_overlay(
     f.render_widget(p, popup_area);
 }
 
+fn draw_info_overlay(
+    f: &mut Frame,
+    area: Rect,
+    t: &ThemePalette,
+    title: &str,
+    lines: Vec<Line<'static>>,
+    scroll: usize,
+    max_scroll_out: &mut u16,
+) {
+    let popup_area = centered_fixed(
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(2),
+        area,
+    );
+    f.render_widget(Clear, popup_area);
+
+    let inner_h = popup_area.height.saturating_sub(2);
+    let total = lines.len() as u16;
+    let max_scroll = total.saturating_sub(inner_h);
+    *max_scroll_out = max_scroll;
+    let clamped_scroll = (scroll as u16).min(max_scroll);
+
+    let header_style = Style::default().fg(t.help_header).add_modifier(Modifier::BOLD);
+    let display_title = if max_scroll > 0 {
+        let pct = ((clamped_scroll as u32 * 100) / max_scroll as u32).min(100);
+        format!("  {}  [{:3}%]  ", title, pct)
+    } else {
+        format!("  {}  ", title)
+    };
+
+    let p = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(display_title)
+                .title_style(header_style)
+                .border_style(Style::default().fg(t.help_border)),
+        )
+        .scroll((clamped_scroll, 0));
+    f.render_widget(p, popup_area);
+}
+
+fn draw_skills_overlay(
+    f: &mut Frame,
+    area: Rect,
+    skills: &[crate::tui::SkillEntry],
+    t: &ThemePalette,
+    scroll: usize,
+    max_scroll_out: &mut u16,
+) {
+    let header = Style::default().fg(t.help_header).add_modifier(Modifier::BOLD);
+    let key    = Style::default().fg(t.help_key).add_modifier(Modifier::BOLD);
+    let desc   = Style::default().fg(t.help_desc);
+    let sep    = Style::default().fg(t.help_sep);
+    let inner_w = area.width.saturating_sub(6) as usize;
+    let divider = || Line::from(Span::styled("─".repeat(inner_w), sep));
+
+    let mut lines: Vec<Line<'static>> = vec![Line::from("")];
+
+    if skills.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No skills loaded.",
+            Style::default().fg(t.help_desc),
+        )));
+    } else {
+        for skill in skills {
+            lines.push(Line::from(Span::styled(
+                format!("  📦 {}", skill.name),
+                header,
+            )));
+            lines.push(divider());
+            if !skill.description.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("  {}", skill.description),
+                    desc,
+                )));
+            }
+            for script in &skill.scripts {
+                lines.push(Line::from(vec![
+                    Span::raw("    "),
+                    Span::styled(format!("{:<20}", "script:"), key),
+                    Span::styled(script.clone(), desc),
+                ]));
+            }
+            lines.push(Line::from(""));
+        }
+    }
+
+    lines.push(Line::from(Span::styled(
+        "  Esc / q / Ctrl+Shift+S  close",
+        Style::default().fg(t.help_sep),
+    )));
+    lines.push(Line::from(""));
+
+    draw_info_overlay(f, area, t, "📦 Skills", lines, scroll, max_scroll_out);
+}
+
+fn draw_mcp_overlay(
+    f: &mut Frame,
+    area: Rect,
+    mcps: &[crate::tui::McpEntry],
+    t: &ThemePalette,
+    scroll: usize,
+    max_scroll_out: &mut u16,
+) {
+    let header = Style::default().fg(t.help_header).add_modifier(Modifier::BOLD);
+    let key    = Style::default().fg(t.help_key).add_modifier(Modifier::BOLD);
+    let desc   = Style::default().fg(t.help_desc);
+    let sep    = Style::default().fg(t.help_sep);
+    let inner_w = area.width.saturating_sub(6) as usize;
+    let divider = || Line::from(Span::styled("─".repeat(inner_w), sep));
+
+    let mut lines: Vec<Line<'static>> = vec![Line::from("")];
+
+    if mcps.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No MCP servers connected.",
+            Style::default().fg(t.help_desc),
+        )));
+    } else {
+        for entry in mcps {
+            lines.push(Line::from(Span::styled(
+                format!("  🔌 {}", entry.server),
+                header,
+            )));
+            lines.push(divider());
+            for tool in &entry.tools {
+                lines.push(Line::from(vec![
+                    Span::raw("    "),
+                    Span::styled(format!("{:<20}", "tool:"), key),
+                    Span::styled(tool.clone(), desc),
+                ]));
+            }
+            lines.push(Line::from(""));
+        }
+    }
+
+    lines.push(Line::from(Span::styled(
+        "  Esc / q / Ctrl+Shift+M  close",
+        Style::default().fg(t.help_sep),
+    )));
+    lines.push(Line::from(""));
+
+    draw_info_overlay(f, area, t, "🔌 MCP Servers", lines, scroll, max_scroll_out);
+}

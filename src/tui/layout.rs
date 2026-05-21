@@ -15,7 +15,7 @@ pub fn draw(f: &mut Frame, app: &mut TuiApp) {
         .constraints([
             Constraint::Length(1),   // Status bar
             Constraint::Min(5),      // Main area
-            Constraint::Length(3),   // Input
+            Constraint::Length(1),   // Input prompt
         ])
         .split(f.area());
 
@@ -254,43 +254,34 @@ fn draw_files_panel(f: &mut Frame, app: &mut TuiApp, area: Rect) {
 fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let t = app.theme();
 
-    let (input_widget, title_style, border_color) = if app.agent_busy {
+    let line = if app.agent_busy {
         let spinner = crate::tui::widgets::spinner_frame(app.tick);
-        let content = format!("{} Working…  Ctrl+C to interrupt", spinner);
-        let p = Paragraph::new(Span::styled(
-            content,
-            Style::default().fg(t.input_busy_fg).add_modifier(Modifier::BOLD),
-        ));
-        (p, Style::default().fg(t.input_busy_fg).add_modifier(Modifier::BOLD), t.input_busy_fg)
+        Line::from(vec![
+            Span::styled(
+                format!("{} Working…  Ctrl+C to interrupt", spinner),
+                Style::default().fg(t.input_busy_fg).add_modifier(Modifier::BOLD),
+            ),
+        ])
     } else {
         let cursor = app.input_cursor.min(app.input.len());
         let before = &app.input[..cursor];
 
-        // Render the input as plain text; the terminal's own cursor marks position.
-        let p = Paragraph::new(Line::from(vec![
-            Span::styled("> ".to_string(), Style::default().fg(t.input_fg)),
-            Span::styled(app.input.clone(), Style::default().fg(t.input_fg)),
-        ]));
-
-        // Place the terminal cursor: border(1) + "> "(2) + display-width of text before cursor.
+        // Place the terminal cursor: "> "(2) + display-width of text before cursor.
         let before_cols: u16 = before.width() as u16;
-        let cx = area.x + 1 + 2 + before_cols;
-        let cy = area.y + 1;
-        if cx < area.x + area.width.saturating_sub(1) {
+        let cx = area.x + 2 + before_cols;
+        let cy = area.y;
+        if cx < area.x + area.width {
             f.set_cursor_position((cx, cy));
         }
 
-        (p, Style::default().fg(t.input_fg), t.input_fg)
+        Line::from(vec![
+            Span::styled("> ", Style::default().fg(t.input_fg).add_modifier(Modifier::BOLD)),
+            Span::styled(app.input.clone(), Style::default().fg(t.input_fg)),
+        ])
     };
 
-    let p = input_widget.block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title("Input")
-            .title_style(title_style)
-            .border_style(Style::default().fg(border_color))
-            .style(Style::default().bg(t.panel_bg)),
-    ).style(Style::default().bg(t.panel_bg));
+    let p = Paragraph::new(line)
+        .style(Style::default().bg(t.panel_bg));
     f.render_widget(p, area);
 }
 

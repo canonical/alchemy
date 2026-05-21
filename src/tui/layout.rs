@@ -24,7 +24,7 @@ pub fn draw(f: &mut Frame, app: &mut TuiApp) {
 
     // Help overlay drawn last so it floats above everything.
     if app.show_help {
-        draw_help_overlay(f, f.area(), app.theme());
+        draw_help_overlay(f, f.area(), app.theme(), app.help_scroll, &mut app.help_max_scroll);
     }
 }
 
@@ -266,28 +266,28 @@ fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     f.render_widget(p, area);
 }
 
-/// Returns a centered `Rect` of the given percentage width/height within `r`.
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
+/// Returns a centered `Rect` sized `w × h` within `r`, clamped to fit.
+fn centered_fixed(w: u16, h: u16, r: Rect) -> Rect {
+    let popup_w = w.min(r.width);
+    let popup_h = h.min(r.height);
+    let x = r.x + (r.width.saturating_sub(popup_w)) / 2;
+    let y = r.y + (r.height.saturating_sub(popup_h)) / 2;
+    Rect::new(x, y, popup_w, popup_h)
 }
 
-fn draw_help_overlay(f: &mut Frame, area: Rect, t: &ThemePalette) {
-    let popup_area = centered_rect(62, 85, area);
+fn draw_help_overlay(
+    f: &mut Frame,
+    area: Rect,
+    t: &ThemePalette,
+    scroll: usize,
+    max_scroll_out: &mut u16,
+) {
+    // Fill the terminal leaving a 1-cell margin on each side.
+    let popup_area = centered_fixed(
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(2),
+        area,
+    );
     f.render_widget(Clear, popup_area);
 
     let header = Style::default().fg(t.help_header).add_modifier(Modifier::BOLD);
@@ -295,16 +295,14 @@ fn draw_help_overlay(f: &mut Frame, area: Rect, t: &ThemePalette) {
     let desc   = Style::default().fg(t.help_desc);
     let sep    = Style::default().fg(t.help_sep);
 
-    let divider = Line::from(Span::styled(
-        "─".repeat(popup_area.width.saturating_sub(4) as usize),
-        sep,
-    ));
+    let inner_w = popup_area.width.saturating_sub(4) as usize;
+    let divider = Line::from(Span::styled("─".repeat(inner_w), sep));
 
     macro_rules! kline {
         ($k:expr, $d:expr) => {
             Line::from(vec![
                 Span::raw("  "),
-                Span::styled(format!("{:<22}", $k), key),
+                Span::styled(format!("{:<20}", $k), key),
                 Span::styled($d, desc),
             ])
         };
@@ -319,60 +317,74 @@ fn draw_help_overlay(f: &mut Frame, area: Rect, t: &ThemePalette) {
         Line::from(""),
         section!("Navigation"),
         divider.clone(),
-        kline!("Tab", "Cycle panel focus (conv → tools → files)"),
+        kline!("Tab",              "Cycle panel focus (conv → tools → files)"),
         kline!("Ctrl+↑ / Ctrl+↓", "Scroll focused panel (5 lines)"),
         Line::from(""),
         section!("Prompt History"),
         divider.clone(),
-        kline!("↑ / ↓", "Browse previously sent prompts"),
+        kline!("↑ / ↓",           "Browse previously sent prompts"),
         Line::from(""),
         section!("Cursor Editing"),
         divider.clone(),
-        kline!("← / →", "Move cursor left / right"),
-        kline!("Home / End", "Jump to start / end of input"),
-        kline!("Backspace", "Delete character before cursor"),
-        kline!("Delete", "Delete character at cursor"),
+        kline!("← / →",           "Move cursor left / right"),
+        kline!("Home / End",       "Jump to start / end of input"),
+        kline!("Backspace",        "Delete character before cursor"),
+        kline!("Delete",           "Delete character at cursor"),
         Line::from(""),
         section!("Messaging"),
         divider.clone(),
-        kline!("Enter", "Send message"),
-        kline!("Esc", "Clear input / exit history"),
+        kline!("Enter",            "Send message"),
+        kline!("Esc",              "Clear input / exit history"),
         Line::from(""),
         section!("Appearance"),
         divider.clone(),
-        kline!("Ctrl+T", "Cycle theme (Dark → Light → Dracula → Solarized)"),
+        kline!("Ctrl+T",           "Cycle theme (Dark→Light→Dracula→Solarized)"),
         Line::from(""),
         section!("Session"),
         divider.clone(),
-        kline!("Ctrl+S", "Save session to disk"),
-        kline!("Ctrl+L", "Clear conversation display"),
+        kline!("Ctrl+S",           "Save session to disk"),
+        kline!("Ctrl+L",           "Clear conversation display"),
         Line::from(""),
         section!("Agent / Exit"),
         divider.clone(),
-        kline!("Ctrl+C (while busy)", "Interrupt running agent"),
-        kline!("Ctrl+C (idle)", "Exit"),
-        kline!("Ctrl+D", "Exit"),
+        kline!("Ctrl+C (busy)",    "Interrupt running agent"),
+        kline!("Ctrl+C (idle)",    "Exit"),
+        kline!("Ctrl+D",           "Exit"),
         Line::from(""),
-        section!("Help"),
+        section!("This Overlay"),
         divider.clone(),
-        kline!("? (empty input)", "Show / hide this overlay"),
-        kline!("Esc / ?", "Close this overlay"),
+        kline!("↑ ↓ PgUp PgDn",   "Scroll"),
+        kline!("Home / End",       "Jump to top / bottom"),
+        kline!("? / Esc / q",      "Close overlay"),
         Line::from(""),
-        Line::from(Span::styled(
-            "  Press ? or Esc to close",
-            Style::default().fg(t.help_sep).add_modifier(Modifier::ITALIC),
-        )),
     ];
+
+    // Compute max scroll: total lines minus visible inner height.
+    let inner_h = popup_area.height.saturating_sub(2); // subtract border rows
+    let total = lines.len() as u16;
+    let max_scroll = total.saturating_sub(inner_h);
+    *max_scroll_out = max_scroll;
+    let clamped_scroll = (scroll as u16).min(max_scroll);
+
+    // Scroll indicator shown in title when content overflows.
+    let title = if max_scroll > 0 {
+        let pct = if max_scroll == 0 { 100 } else {
+            ((clamped_scroll as u32 * 100) / max_scroll as u32).min(100)
+        };
+        format!("  ⌨  Key Bindings  [{:3}%]  ", pct)
+    } else {
+        "  ⌨  Key Bindings  ".to_string()
+    };
 
     let p = Paragraph::new(lines)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("  ⌨  Key Bindings  ")
+                .title(title)
                 .title_style(header)
                 .border_style(Style::default().fg(t.help_border)),
         )
-        .wrap(Wrap { trim: false });
+        .scroll((clamped_scroll, 0));
 
     f.render_widget(p, popup_area);
 }

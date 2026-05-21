@@ -81,6 +81,10 @@ pub struct TuiApp {
     abort_handle: Option<tokio::task::AbortHandle>,
     /// When true, the help overlay is rendered and most keys are consumed by it.
     pub show_help: bool,
+    /// Scroll offset for the help overlay.
+    pub help_scroll: usize,
+    /// Max scroll offset for the help overlay (computed each draw frame).
+    pub help_max_scroll: u16,
     /// Index into `theme::THEMES` for the active color palette.
     pub theme_idx: usize,
     /// Prompts sent this session, oldest first. Up/Down navigate through them.
@@ -148,6 +152,8 @@ impl TuiApp {
             turn_baseline_tokens: 0,
             abort_handle: None,
             show_help: false,
+            help_scroll: 0,
+            help_max_scroll: 0,
             theme_idx: theme::load_theme(),
             prompt_history: Vec::new(),
             history_idx: None,
@@ -318,12 +324,36 @@ impl TuiApp {
     }
 
     fn handle_key(&mut self, key: KeyEvent, agent: &Arc<Agent>, history_path: &str) {
-        // Help overlay captures all keys: ? or Esc close it.
+        // Help overlay captures all keys for scrolling and dismissal.
         if self.show_help {
             match (key.modifiers, key.code) {
                 (KeyModifiers::NONE, KeyCode::Char('?'))
-                | (KeyModifiers::NONE, KeyCode::Esc) => {
+                | (KeyModifiers::NONE, KeyCode::Esc)
+                | (KeyModifiers::NONE, KeyCode::Char('q')) => {
                     self.show_help = false;
+                    self.help_scroll = 0;
+                }
+                (KeyModifiers::NONE, KeyCode::Up) => {
+                    self.help_scroll = self.help_scroll.saturating_sub(1);
+                }
+                (KeyModifiers::NONE, KeyCode::Down) => {
+                    self.help_scroll = self.help_scroll
+                        .saturating_add(1)
+                        .min(self.help_max_scroll as usize);
+                }
+                (KeyModifiers::NONE, KeyCode::PageUp) => {
+                    self.help_scroll = self.help_scroll.saturating_sub(10);
+                }
+                (KeyModifiers::NONE, KeyCode::PageDown) => {
+                    self.help_scroll = self.help_scroll
+                        .saturating_add(10)
+                        .min(self.help_max_scroll as usize);
+                }
+                (KeyModifiers::NONE, KeyCode::Home) => {
+                    self.help_scroll = 0;
+                }
+                (KeyModifiers::NONE, KeyCode::End) => {
+                    self.help_scroll = self.help_max_scroll as usize;
                 }
                 _ => {}
             }
@@ -334,6 +364,7 @@ impl TuiApp {
             // ── Help overlay ─────────────────────────────────────────────────
             (KeyModifiers::NONE, KeyCode::Char('?')) if self.input.is_empty() => {
                 self.show_help = true;
+                self.help_scroll = 0;
             }
 
             // ── Exit / interrupt ─────────────────────────────────────────────

@@ -362,9 +362,7 @@ impl TuiApp {
                     self.show_skills = false;
                     self.skills_scroll = 0;
                 }
-                (m, KeyCode::Char('s') | KeyCode::Char('S'))
-                    if m == KeyModifiers::CONTROL | KeyModifiers::SHIFT =>
-                {
+                (KeyModifiers::ALT, KeyCode::Char('s')) => {
                     self.show_skills = false;
                     self.skills_scroll = 0;
                 }
@@ -403,9 +401,7 @@ impl TuiApp {
                     self.show_mcp = false;
                     self.mcp_scroll = 0;
                 }
-                (m, KeyCode::Char('m') | KeyCode::Char('M'))
-                    if m == KeyModifiers::CONTROL | KeyModifiers::SHIFT =>
-                {
+                (KeyModifiers::ALT, KeyCode::Char('m')) => {
                     self.show_mcp = false;
                     self.mcp_scroll = 0;
                 }
@@ -480,25 +476,17 @@ impl TuiApp {
             }
 
             // ── Panel visibility toggles ─────────────────────────────────────
-            (m, KeyCode::Char('t') | KeyCode::Char('T'))
-                if m == KeyModifiers::CONTROL | KeyModifiers::SHIFT =>
-            {
+            (KeyModifiers::ALT, KeyCode::Char('t')) => {
                 self.show_tools = !self.show_tools;
             }
-            (m, KeyCode::Char('f') | KeyCode::Char('F'))
-                if m == KeyModifiers::CONTROL | KeyModifiers::SHIFT =>
-            {
+            (KeyModifiers::ALT, KeyCode::Char('f')) => {
                 self.show_files = !self.show_files;
             }
-            (m, KeyCode::Char('s') | KeyCode::Char('S'))
-                if m == KeyModifiers::CONTROL | KeyModifiers::SHIFT =>
-            {
+            (KeyModifiers::ALT, KeyCode::Char('s')) => {
                 self.show_skills = true;
                 self.skills_scroll = 0;
             }
-            (m, KeyCode::Char('m') | KeyCode::Char('M'))
-                if m == KeyModifiers::CONTROL | KeyModifiers::SHIFT =>
-            {
+            (KeyModifiers::ALT, KeyCode::Char('m')) => {
                 self.show_mcp = true;
                 self.mcp_scroll = 0;
             }

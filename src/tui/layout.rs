@@ -347,10 +347,10 @@ fn draw_help_overlay(
         Line::from(""),
         section!("Panel Visibility"),
         divider.clone(),
-        kline!("Ctrl+Shift+T",         "Toggle Tools panel"),
-        kline!("Ctrl+Shift+F",         "Toggle Files panel"),
-        kline!("Ctrl+Shift+S",         "Show Skills info overlay"),
-        kline!("Ctrl+Shift+M",         "Show MCP info overlay"),
+        kline!("Alt+T",                "Toggle Tools panel"),
+        kline!("Alt+F",                "Toggle Files panel"),
+        kline!("Alt+S",                "Show Skills info overlay"),
+        kline!("Alt+M",                "Show MCP info overlay"),
         Line::from(""),
         section!("Prompt History"),
         divider.clone(),
@@ -510,7 +510,7 @@ fn draw_skills_overlay(
     }
 
     lines.push(Line::from(Span::styled(
-        "  Esc / q / Ctrl+Shift+S  close",
+        "  Esc / q / Alt+S  close",
         Style::default().fg(t.help_sep),
     )));
     lines.push(Line::from(""));
@@ -559,7 +559,7 @@ fn draw_mcp_overlay(
     }
 
     lines.push(Line::from(Span::styled(
-        "  Esc / q / Ctrl+Shift+M  close",
+        "  Esc / q / Alt+M  close",
         Style::default().fg(t.help_sep),
     )));
     lines.push(Line::from(""));

@@ -158,7 +158,14 @@ fn draw_conversation(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         lines.push(Line::from(""));
     }
 
-    let total_lines = lines.len() as u16;
+    let total_lines: u16 = lines.iter().map(|line| {
+        let w: usize = line.spans.iter().map(|s| s.content.as_ref().width()).sum();
+        if inner_width == 0 || w == 0 {
+            1u16
+        } else {
+            w.div_ceil(inner_width) as u16
+        }
+    }).sum();
     let max_scroll = total_lines.saturating_sub(visible_height as u16);
     app.conv_max_scroll = max_scroll;
     let scroll = if app.conv_follow {

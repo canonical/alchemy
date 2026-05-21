@@ -73,6 +73,7 @@ pub struct ToolLogEntry {
     pub name: String,
     pub status: String,
     pub duration_ms: u64,
+    pub success: bool,
 }
 
 #[derive(Clone)]
@@ -138,6 +139,23 @@ impl TuiApp {
             self.messages = msgs;
         }
 
+        // Write or update session.json metadata.
+        let session_json_path = format!("{}/session.json", history_path);
+        let now = chrono::Utc::now().to_rfc3339();
+        let metadata = if let Ok(mut m) =
+            history::load_session_metadata(&session_json_path).await
+        {
+            m.updated_at = now.clone();
+            m
+        } else {
+            history::SessionMetadata {
+                model: config.model.clone(),
+                created_at: now.clone(),
+                updated_at: now.clone(),
+            }
+        };
+        let _ = history::save_session_metadata(&session_json_path, &metadata).await;
+
         let agent = Arc::new(Agent::new(config, provider, registry));
 
         loop {
@@ -150,17 +168,19 @@ impl TuiApp {
                                 name,
                                 status: "⏳".into(),
                                 duration_ms: 0,
+                                success: true,
                             });
                         }
-                        ToolEvent::Finished { name, duration_ms } => {
+                        ToolEvent::Finished { name, duration_ms, success } => {
                             if let Some(entry) = self
                                 .tools_log
                                 .iter_mut()
                                 .rev()
                                 .find(|e| e.name == name && e.status == "⏳")
                             {
-                                entry.status = "✓".into();
+                                entry.status = if success { "✓".into() } else { "✗".into() };
                                 entry.duration_ms = duration_ms;
+                                entry.success = success;
                             }
                         }
                     }
@@ -225,6 +245,12 @@ impl TuiApp {
                         &self.messages,
                     )
                     .await;
+
+                    // Update session.json updated_at timestamp.
+                    if let Ok(mut m) = history::load_session_metadata(&session_json_path).await {
+                        m.updated_at = chrono::Utc::now().to_rfc3339();
+                        let _ = history::save_session_metadata(&session_json_path, &m).await;
+                    }
                 }
             }
 

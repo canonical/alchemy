@@ -164,7 +164,7 @@ async fn run() -> i32 {
         }
         Some(Commands::Tui { session, session_dir, system, max_steps, timeout }) => {
             match run_tui(session, session_dir, system, max_steps, timeout).await {
-                Ok(()) => 0,
+                Ok(code) => code,
                 Err(e) => { eprintln!("Error: {}", e); 1 }
             }
         }
@@ -271,6 +271,13 @@ async fn run_pipe(cli: Cli) -> Result<i32> {
         .unwrap_or(false);
 
     if rag_enabled {
+        // Validate store backend — only SQLite is implemented.
+        let rag_store = std::env::var("ALCHEMY_RAG_STORE").unwrap_or_else(|_| "sqlite".to_string());
+        if !matches!(rag_store.as_str(), "sqlite") {
+            eprintln!("Error: ALCHEMY_RAG_STORE={} is not supported. Only 'sqlite' is implemented.", rag_store);
+            return Ok(2);
+        }
+
         // Validate embedding provider
         let embed_provider = std::env::var("ALCHEMY_RAG_EMBED_PROVIDER")
             .unwrap_or_else(|_| provider_name.clone());
@@ -360,7 +367,7 @@ async fn run_tui(
     system: Option<String>,
     max_steps: Option<u32>,
     timeout: Option<u64>,
-) -> Result<()> {
+) -> Result<i32> {
     let provider_name = std::env::var("ALCHEMY_PROVIDER")
         .map_err(|_| anyhow::anyhow!("ALCHEMY_PROVIDER environment variable is required"))?;
     let api_key = std::env::var("ALCHEMY_API_KEY").ok();
@@ -377,17 +384,62 @@ async fn run_tui(
         .or_else(|| std::env::var("ALCHEMY_SESSION_DIR").ok())
         .unwrap_or_else(|| dirs_path("sessions"));
 
+    // Validate ALCHEMY_RAG_STORE before any setup.
+    let rag_store = std::env::var("ALCHEMY_RAG_STORE").unwrap_or_else(|_| "sqlite".to_string());
+    if !matches!(rag_store.as_str(), "sqlite") {
+        eprintln!("Error: ALCHEMY_RAG_STORE={} is not supported. Only 'sqlite' is implemented.", rag_store);
+        return Ok(2);
+    }
+
+    // Build tool registry with MCP + skills (same as pipe mode).
+    let mut registry = ToolRegistry::new();
+
+    let mcp_configs = load_mcp_configs();
+    if !mcp_configs.is_empty() {
+        let mcp_tools = tools::mcp::discover_tools(&mcp_configs).await;
+        registry.add_mcp_tools(mcp_tools);
+    }
+
+    let skills_enabled = std::env::var("ALCHEMY_SKILLS_ENABLED")
+        .map(|s| s != "false")
+        .unwrap_or(true);
+
+    let mut skill_context = String::new();
+    if skills_enabled {
+        let skills_dir = std::env::var("ALCHEMY_SKILLS_DIR")
+            .unwrap_or_else(|_| dirs_path("skills"));
+        let skills_path = PathBuf::from(&skills_dir);
+        let all_skills = skills::load_skills(&skills_path).await;
+        // In TUI mode we have no initial prompt, so match on CWD signals only.
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let matched = skills::match_skills(&all_skills, "", &cwd);
+
+        if !matched.is_empty() {
+            skill_context = skills::build_skill_context(&all_skills, &matched).await;
+            let skill_tools = tools::skill::create_skill_tools(
+                &matched.iter().filter_map(|&i| all_skills.get(i)).cloned().collect::<Vec<_>>()
+            );
+            registry.add_skill_tools(skill_tools);
+        }
+    }
+
+    let full_system = if skill_context.is_empty() {
+        system_prompt
+    } else {
+        format!("{}{}", system_prompt, skill_context)
+    };
+
     let config = AgentConfig {
         model: model.clone(),
-        system_prompt,
+        system_prompt: full_system,
         max_steps: max_steps.unwrap_or(30),
         timeout_secs: timeout.unwrap_or(30),
         context_window: std::env::var("ALCHEMY_CONTEXT_WINDOW").ok().and_then(|s| s.parse().ok()).unwrap_or(128000),
     };
 
-    let registry = ToolRegistry::new();
     let mut app = tui::TuiApp::new(session, sess_dir, model);
-    app.run(provider, config, registry).await
+    app.run(provider, config, registry).await?;
+    Ok(0)
 }
 
 async fn run_rag(action: RagAction) -> Result<()> {

@@ -24,7 +24,8 @@ pub fn draw(f: &mut Frame, app: &mut TuiApp) {
 
 fn draw_status_bar(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let status = format!(
-        " Alchemy v0.1.0 │ {} │ ⏱ {} steps │ 📊 {}k tokens",
+        " Alchemy v0.1.0 │ {} │ {} │ ⏱ {} steps │ 📊 {}k tokens",
+        app.session_name,
         app.model_name,
         app.steps,
         app.total_tokens / 1000,
@@ -138,7 +139,11 @@ fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         if t.status == "⏳" {
             Line::from(format!("{} {}", spinner, t.name))
         } else {
-            Line::from(format!("{} {} ({}ms)", t.status, t.name, t.duration_ms))
+            let status_color = if t.success { Color::Green } else { Color::Red };
+            Line::from(vec![
+                Span::styled(t.status.clone(), Style::default().fg(status_color)),
+                Span::raw(format!(" {} ({}ms)", t.name, t.duration_ms)),
+            ])
         }
     }).collect();
     let tools_border = if app.focused_panel == 1 {

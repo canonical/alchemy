@@ -24,7 +24,7 @@ pub struct Agent {
 #[derive(Debug, Clone)]
 pub enum ToolEvent {
     Started { name: String },
-    Finished { name: String, duration_ms: u64 },
+    Finished { name: String, duration_ms: u64, success: bool },
 }
 
 /// File activity events for the TUI file panel.
@@ -234,15 +234,15 @@ impl Agent {
                                     name: tc.function.name.clone(),
                                 });
                             }
-                            let result = match registry.dispatch(&tc, timeout).await {
-                                Ok(r) => r,
-                                Err(e) => tool_error_payload(&e),
-                            };
+                            let dispatch_result = registry.dispatch(&tc, timeout).await;
+                            let success = dispatch_result.is_ok();
+                            let result = dispatch_result.unwrap_or_else(|e| tool_error_payload(&e));
                             let duration_ms = start.elapsed().as_millis() as u64;
                             if let Some(ref tx) = tx {
                                 let _ = tx.try_send(ToolEvent::Finished {
                                     name: tc.function.name.clone(),
                                     duration_ms,
+                                    success,
                                 });
                             }
                             ToolOutcome { call: tc, result }
@@ -272,13 +272,12 @@ impl Agent {
                     let _ = tx.try_send(ToolEvent::Started { name: name.clone() });
                 }
                 tools_used.insert(name.clone());
-                let result = match self.registry.dispatch(tc, self.config.timeout_secs).await {
-                    Ok(r) => r,
-                    Err(e) => tool_error_payload(&e),
-                };
+                let dispatch_result = self.registry.dispatch(tc, self.config.timeout_secs).await;
+                let success = dispatch_result.is_ok();
+                let result = dispatch_result.unwrap_or_else(|e| tool_error_payload(&e));
                 let duration_ms = start.elapsed().as_millis() as u64;
                 if let Some(ref tx) = tool_tx {
-                    let _ = tx.try_send(ToolEvent::Finished { name: name.clone(), duration_ms });
+                    let _ = tx.try_send(ToolEvent::Finished { name: name.clone(), duration_ms, success });
                 }
                 emit_file_event(&file_tx, &name, &tc.function.arguments);
                 messages.push(Message {

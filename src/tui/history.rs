@@ -8,6 +8,14 @@ struct MessageEntry {
     content: String,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct SessionMetadata {
+    pub model: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+
 pub async fn load_messages(path: &str) -> Result<Vec<TuiMessage>> {
     let content = tokio::fs::read_to_string(path).await?;
     let mut messages = Vec::new();
@@ -28,5 +36,15 @@ pub async fn save_messages(path: &str, messages: &[TuiMessage]) -> Result<()> {
         content.push('\n');
     }
     tokio::fs::write(path, content).await?;
+    Ok(())
+}
+
+pub async fn load_session_metadata(path: &str) -> Result<SessionMetadata> {
+    let content = tokio::fs::read_to_string(path).await?;
+    Ok(serde_json::from_str(&content)?)
+}
+
+pub async fn save_session_metadata(path: &str, metadata: &SessionMetadata) -> Result<()> {
+    tokio::fs::write(path, serde_json::to_string_pretty(metadata)?).await?;
     Ok(())
 }

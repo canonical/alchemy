@@ -133,6 +133,7 @@ pub struct FileLogEntry {
 
 impl TuiApp {
     pub fn new(session_name: String, session_dir: String, model_name: String) -> Self {
+        let (show_tools, show_files) = theme::load_panels();
         Self {
             session_name,
             session_dir,
@@ -163,8 +164,8 @@ impl TuiApp {
             turn_baseline_steps: 0,
             turn_baseline_tokens: 0,
             abort_handle: None,
-            show_tools: true,
-            show_files: true,
+            show_tools,
+            show_files,
             show_help: false,
             help_scroll: 0,
             help_max_scroll: 0,
@@ -478,9 +479,11 @@ impl TuiApp {
             // ── Panel visibility toggles ─────────────────────────────────────
             (KeyModifiers::ALT, KeyCode::Char('t')) => {
                 self.show_tools = !self.show_tools;
+                theme::save_panels(self.show_tools, self.show_files);
             }
             (KeyModifiers::ALT, KeyCode::Char('f')) => {
                 self.show_files = !self.show_files;
+                theme::save_panels(self.show_tools, self.show_files);
             }
             (KeyModifiers::ALT, KeyCode::Char('s')) => {
                 self.show_skills = true;
@@ -518,7 +521,7 @@ impl TuiApp {
             (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
                 self.messages.clear();
             }
-            (KeyModifiers::CONTROL, KeyCode::Char('t')) => {
+            (KeyModifiers::ALT, KeyCode::Char('c')) => {
                 self.theme_idx = (self.theme_idx + 1) % theme::THEMES.len();
                 theme::save_theme(self.theme_idx);
             }

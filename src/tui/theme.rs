@@ -216,3 +216,37 @@ pub fn save_theme(idx: usize) {
     }
     let _ = std::fs::write(&path, THEMES[idx].name);
 }
+
+fn panels_file_path() -> std::path::PathBuf {
+    theme_file_path().with_file_name("panels")
+}
+
+/// Load persisted panel visibility. Returns `(show_tools, show_files)`,
+/// defaulting to `(true, true)` on any error.
+pub fn load_panels() -> (bool, bool) {
+    let Ok(content) = std::fs::read_to_string(panels_file_path()) else {
+        return (true, true);
+    };
+    let mut show_tools = true;
+    let mut show_files = true;
+    for line in content.lines() {
+        match line.trim() {
+            "tools=false" => show_tools = false,
+            "tools=true"  => show_tools = true,
+            "files=false" => show_files = false,
+            "files=true"  => show_files = true,
+            _ => {}
+        }
+    }
+    (show_tools, show_files)
+}
+
+/// Persist panel visibility to `~/.config/alchemy/panels`.
+pub fn save_panels(show_tools: bool, show_files: bool) {
+    let path = panels_file_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let content = format!("tools={}\nfiles={}\n", show_tools, show_files);
+    let _ = std::fs::write(&path, content);
+}

@@ -370,7 +370,7 @@ fn draw_help_overlay(
         Line::from(""),
         section!("Appearance"),
         divider.clone(),
-        kline!("Ctrl+T",               "Cycle theme (Dark→Light→Dracula→Solarized)"),
+        kline!("Alt+C",                "Cycle theme (Dark→Light→Dracula→Solarized)"),
         Line::from(""),
         section!("Session"),
         divider.clone(),

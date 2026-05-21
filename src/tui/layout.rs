@@ -217,35 +217,56 @@ fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         .split(area);
 
     // --- Input box ---
-    let (input_content, title_style, border_color) = if app.agent_busy {
+    let (input_widget, title_style, border_color) = if app.agent_busy {
         let spinner = crate::tui::widgets::spinner_frame(app.tick);
-        (
-            format!("{} Working…  Ctrl+C to interrupt", spinner),
+        let content = format!("{} Working…  Ctrl+C to interrupt", spinner);
+        let p = Paragraph::new(Span::styled(
+            content,
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            Color::Yellow,
-        )
+        ));
+        (p, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD), Color::Yellow)
     } else {
-        (
-            format!("> {}█", app.input),
-            Style::default().fg(Color::White),
-            Color::White,
-        )
+        // Render cursor: split input at input_cursor into before/cursor/after.
+        let cursor = app.input_cursor.min(app.input.len());
+        let before = &app.input[..cursor];
+        let (cursor_char, after) = if cursor < app.input.len() {
+            let next = {
+                let mut p = cursor + 1;
+                while p < app.input.len() && !app.input.is_char_boundary(p) { p += 1; }
+                p
+            };
+            (&app.input[cursor..next], &app.input[next..])
+        } else {
+            // Cursor is at the end — use a block character.
+            ("█", "")
+        };
+
+        let spans = vec![
+            Span::styled(format!("> {}", before), Style::default().fg(Color::White)),
+            Span::styled(
+                cursor_char.to_string(),
+                Style::default().bg(Color::White).fg(Color::Black),
+            ),
+            Span::styled(after.to_string(), Style::default().fg(Color::White)),
+        ];
+        let p = Paragraph::new(Line::from(spans));
+        (p, Style::default().fg(Color::White), Color::White)
     };
 
-    let p = Paragraph::new(Span::styled(input_content, title_style))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Input")
-                .border_style(Style::default().fg(border_color)),
-        );
+    let p = input_widget.block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Input")
+            .title_style(title_style)
+            .border_style(Style::default().fg(border_color)),
+    );
     f.render_widget(p, chunks[0]);
 
     // --- Hint bar ---
     let hint = if app.agent_busy {
         "  Ctrl+C: cancel  │  Ctrl+D: exit"
     } else {
-        "  Enter: send  │  Shift+Enter: newline  │  Tab: panel  │  Ctrl+S: save  │  Ctrl+L: clear  │  ?: help"
+        "  Enter: send  │  Ctrl+Enter: newline  │  ↑/↓: history  │  Tab: panel  │  Ctrl+S: save  │  Ctrl+L: clear  │  ?: help"
     };
     let hint_p = Paragraph::new(Span::styled(hint, Style::default().fg(Color::DarkGray)))
         .alignment(Alignment::Left);
@@ -311,15 +332,24 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         section!("Navigation"),
         divider.clone(),
         kline!("Tab", "Cycle panel focus (conv → tools → files)"),
-        kline!("↑ / ↓", "Scroll focused panel"),
-        kline!("Ctrl+↑ / Ctrl+↓", "Scroll conversation (fast, 5 lines)"),
+        kline!("Ctrl+↑ / Ctrl+↓", "Scroll focused panel (5 lines)"),
+        Line::from(""),
+        section!("Prompt History"),
+        divider.clone(),
+        kline!("↑ / ↓", "Browse previously sent prompts"),
+        Line::from(""),
+        section!("Cursor Editing"),
+        divider.clone(),
+        kline!("← / →", "Move cursor left / right"),
+        kline!("Home / End", "Jump to start / end of input"),
+        kline!("Backspace", "Delete character before cursor"),
+        kline!("Delete", "Delete character at cursor"),
         Line::from(""),
         section!("Messaging"),
         divider.clone(),
         kline!("Enter", "Send message"),
-        kline!("Shift+Enter", "Insert newline"),
-        kline!("Backspace", "Delete last character"),
-        kline!("Esc", "Clear input"),
+        kline!("Ctrl+Enter", "Insert newline at cursor"),
+        kline!("Esc", "Clear input / exit history"),
         Line::from(""),
         section!("Session"),
         divider.clone(),

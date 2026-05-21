@@ -18,12 +18,32 @@ use crate::providers::Provider;
 use crate::tools::ToolRegistry;
 use crate::types::{AgentResult, Message};
 
+// ── Cursor helpers ────────────────────────────────────────────────────────────
+
+/// Move cursor one Unicode scalar value to the left.
+fn cursor_left(s: &str, pos: usize) -> usize {
+    if pos == 0 { return 0; }
+    let mut p = pos - 1;
+    while p > 0 && !s.is_char_boundary(p) { p -= 1; }
+    p
+}
+
+/// Move cursor one Unicode scalar value to the right.
+fn cursor_right(s: &str, pos: usize) -> usize {
+    if pos >= s.len() { return s.len(); }
+    let mut p = pos + 1;
+    while p < s.len() && !s.is_char_boundary(p) { p += 1; }
+    p
+}
+
 pub struct TuiApp {
     pub session_name: String,
     pub session_dir: String,
     /// Display messages (role + content) rendered in the conversation panel.
     pub messages: Vec<TuiMessage>,
     pub input: String,
+    /// Byte offset of the cursor within `input`.
+    pub input_cursor: usize,
     pub running: bool,
     pub agent_busy: bool,
     pub tools_log: Vec<ToolLogEntry>,
@@ -60,6 +80,12 @@ pub struct TuiApp {
     abort_handle: Option<tokio::task::AbortHandle>,
     /// When true, the help overlay is rendered and most keys are consumed by it.
     pub show_help: bool,
+    /// Prompts sent this session, oldest first. Up/Down navigate through them.
+    prompt_history: Vec<String>,
+    /// Index into `prompt_history` while browsing; `None` means current draft.
+    history_idx: Option<usize>,
+    /// Saved live input while navigating history, restored on Down past the end.
+    history_draft: String,
 }
 
 const NUM_PANELS: usize = 3;
@@ -93,6 +119,7 @@ impl TuiApp {
             session_dir,
             messages: Vec::new(),
             input: String::new(),
+            input_cursor: 0,
             running: true,
             agent_busy: false,
             tools_log: Vec::new(),
@@ -118,6 +145,9 @@ impl TuiApp {
             turn_baseline_tokens: 0,
             abort_handle: None,
             show_help: false,
+            prompt_history: Vec::new(),
+            history_idx: None,
+            history_draft: String::new(),
         }
     }
 
@@ -292,14 +322,12 @@ impl TuiApp {
         }
 
         match (key.modifiers, key.code) {
-            // Toggle help overlay.
+            // ── Help overlay ─────────────────────────────────────────────────
             (KeyModifiers::NONE, KeyCode::Char('?')) if self.input.is_empty() => {
                 self.show_help = true;
             }
-            // Esc: clear input if non-empty, otherwise no-op.
-            (KeyModifiers::NONE, KeyCode::Esc) => {
-                self.input.clear();
-            }
+
+            // ── Exit / interrupt ─────────────────────────────────────────────
             (KeyModifiers::CONTROL, KeyCode::Char('d')) => {
                 self.running = false;
             }
@@ -315,14 +343,14 @@ impl TuiApp {
                     self.token_rx = None;
                     self.step_rx = None;
                     self.streaming_content = None;
-                    // Commit whatever live counters had reached so the next turn's
-                    // baseline starts from there instead of double-counting.
                     self.turn_baseline_steps = self.steps;
                     self.turn_baseline_tokens = self.total_tokens;
                 } else {
                     self.running = false;
                 }
             }
+
+            // ── Session management ───────────────────────────────────────────
             (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
                 self.messages.clear();
             }
@@ -333,14 +361,22 @@ impl TuiApp {
                     let _ = history::save_messages(&path, &msgs).await;
                 });
             }
+
+            // ── Send message ─────────────────────────────────────────────────
             (KeyModifiers::NONE, KeyCode::Enter) => {
                 if !self.input.is_empty() && !self.agent_busy {
                     let user_msg = self.input.clone();
+
+                    // Push to prompt history and reset history navigation.
+                    self.prompt_history.push(user_msg.clone());
+                    self.history_idx = None;
+                    self.history_draft.clear();
                     self.input.clear();
+                    self.input_cursor = 0;
+
                     self.messages
                         .push(TuiMessage { role: "user".into(), content: user_msg.clone() });
                     self.conv_follow = true;
-
                     self.tools_log.clear();
                     self.agent_busy = true;
 
@@ -357,7 +393,6 @@ impl TuiApp {
                     let (step_tx, step_rx) = tokio::sync::mpsc::channel::<StepEvent>(16);
                     self.step_rx = Some(step_rx);
                     self.streaming_content = None;
-                    // Snapshot baselines so live StepEvents add on top, not overwrite.
                     self.turn_baseline_steps = self.steps;
                     self.turn_baseline_tokens = self.total_tokens;
 
@@ -371,59 +406,143 @@ impl TuiApp {
                     self.abort_handle = Some(join_handle.abort_handle());
                 }
             }
-            (KeyModifiers::SHIFT, KeyCode::Enter) => {
-                self.input.push('\n');
+
+            // ── Newline in input ─────────────────────────────────────────────
+            (KeyModifiers::CONTROL, KeyCode::Enter) => {
+                self.input.insert(self.input_cursor, '\n');
+                self.input_cursor += 1; // '\n' is always 1 byte
             }
-            (KeyModifiers::NONE, KeyCode::Backspace) => {
-                self.input.pop();
+
+            // ── Esc: clear input ─────────────────────────────────────────────
+            (KeyModifiers::NONE, KeyCode::Esc) => {
+                self.input.clear();
+                self.input_cursor = 0;
+                self.history_idx = None;
+                self.history_draft.clear();
             }
-            (KeyModifiers::NONE, KeyCode::Tab) => {
-                self.focused_panel = (self.focused_panel + 1) % NUM_PANELS;
-            }
+
+            // ── Prompt history navigation ────────────────────────────────────
             (KeyModifiers::NONE, KeyCode::Up) => {
-                match self.focused_panel {
-                    0 => {
-                        self.conv_follow = false;
-                        self.conv_scroll = self.conv_scroll.saturating_sub(1);
+                if self.prompt_history.is_empty() {
+                    return;
+                }
+                match self.history_idx {
+                    None => {
+                        // Save current draft and jump to most-recent history entry.
+                        self.history_draft = self.input.clone();
+                        let idx = self.prompt_history.len() - 1;
+                        self.history_idx = Some(idx);
+                        self.input = self.prompt_history[idx].clone();
+                        self.input_cursor = self.input.len();
                     }
-                    1 => { self.tools_scroll = self.tools_scroll.saturating_sub(1); }
-                    2 => { self.files_scroll = self.files_scroll.saturating_sub(1); }
-                    _ => {}
+                    Some(0) => {
+                        // Already at the oldest entry; stay here.
+                    }
+                    Some(i) => {
+                        let idx = i - 1;
+                        self.history_idx = Some(idx);
+                        self.input = self.prompt_history[idx].clone();
+                        self.input_cursor = self.input.len();
+                    }
                 }
             }
             (KeyModifiers::NONE, KeyCode::Down) => {
+                match self.history_idx {
+                    None => {
+                        // Already on the live draft; nothing to do.
+                    }
+                    Some(i) if i + 1 >= self.prompt_history.len() => {
+                        // Past the newest entry → restore draft.
+                        self.input = self.history_draft.clone();
+                        self.history_idx = None;
+                        self.history_draft.clear();
+                        self.input_cursor = self.input.len();
+                    }
+                    Some(i) => {
+                        let idx = i + 1;
+                        self.history_idx = Some(idx);
+                        self.input = self.prompt_history[idx].clone();
+                        self.input_cursor = self.input.len();
+                    }
+                }
+            }
+
+            // ── Cursor movement ──────────────────────────────────────────────
+            (KeyModifiers::NONE, KeyCode::Left) => {
+                self.input_cursor = cursor_left(&self.input, self.input_cursor);
+            }
+            (KeyModifiers::NONE, KeyCode::Right) => {
+                self.input_cursor = cursor_right(&self.input, self.input_cursor);
+            }
+            (KeyModifiers::NONE, KeyCode::Home) => {
+                self.input_cursor = 0;
+            }
+            (KeyModifiers::NONE, KeyCode::End) => {
+                self.input_cursor = self.input.len();
+            }
+
+            // ── Panel scrolling (Ctrl+Up / Ctrl+Down) ───────────────────────
+            (KeyModifiers::CONTROL, KeyCode::Up) => {
                 match self.focused_panel {
                     0 => {
-                        self.conv_scroll += 1;
-                        // Re-enable auto-follow when scrolled back to the bottom.
+                        self.conv_follow = false;
+                        self.conv_scroll = self.conv_scroll.saturating_sub(5);
+                    }
+                    1 => { self.tools_scroll = self.tools_scroll.saturating_sub(5); }
+                    2 => { self.files_scroll = self.files_scroll.saturating_sub(5); }
+                    _ => {}
+                }
+            }
+            (KeyModifiers::CONTROL, KeyCode::Down) => {
+                match self.focused_panel {
+                    0 => {
+                        self.conv_scroll += 5;
                         if self.conv_scroll as u16 >= self.conv_max_scroll {
                             self.conv_follow = true;
                             self.conv_scroll = self.conv_max_scroll as usize;
                         }
                     }
-                    1 => { self.tools_scroll += 1; }
-                    2 => { self.files_scroll += 1; }
+                    1 => { self.tools_scroll += 5; }
+                    2 => { self.files_scroll += 5; }
                     _ => {}
                 }
             }
-            (KeyModifiers::CONTROL, KeyCode::Up) => {
-                self.conv_follow = false;
-                self.conv_scroll = self.conv_scroll.saturating_sub(5);
+
+            // ── Panel focus cycling ──────────────────────────────────────────
+            (KeyModifiers::NONE, KeyCode::Tab) => {
+                self.focused_panel = (self.focused_panel + 1) % NUM_PANELS;
             }
-            (KeyModifiers::CONTROL, KeyCode::Down) => {
-                self.conv_follow = false;
-                self.conv_scroll += 5;
-                if self.conv_scroll as u16 >= self.conv_max_scroll {
-                    self.conv_follow = true;
-                    self.conv_scroll = self.conv_max_scroll as usize;
+
+            // ── Deletion ─────────────────────────────────────────────────────
+            (KeyModifiers::NONE, KeyCode::Backspace) => {
+                if self.input_cursor > 0 {
+                    let prev = cursor_left(&self.input, self.input_cursor);
+                    self.input.drain(prev..self.input_cursor);
+                    self.input_cursor = prev;
                 }
             }
-            (KeyModifiers::NONE, KeyCode::Char(c)) => {
-                self.input.push(c);
+            (KeyModifiers::NONE, KeyCode::Delete) => {
+                if self.input_cursor < self.input.len() {
+                    let next = cursor_right(&self.input, self.input_cursor);
+                    self.input.drain(self.input_cursor..next);
+                    // cursor stays in place
+                }
             }
-            (KeyModifiers::SHIFT, KeyCode::Char(c)) => {
-                self.input.push(c.to_uppercase().next().unwrap_or(c));
+
+            // ── Character insertion ──────────────────────────────────────────
+            (KeyModifiers::NONE, KeyCode::Char(c))
+            | (KeyModifiers::SHIFT, KeyCode::Char(c)) => {
+                let ch = if key.modifiers == KeyModifiers::SHIFT {
+                    c.to_uppercase().next().unwrap_or(c)
+                } else {
+                    c
+                };
+                // Guard: don't let a lone '?' open help mid-word — already
+                // handled above because that branch only fires when input.is_empty().
+                self.input.insert(self.input_cursor, ch);
+                self.input_cursor += ch.len_utf8();
             }
+
             _ => {}
         }
     }

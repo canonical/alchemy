@@ -236,6 +236,8 @@ impl Embedder for CopilotEmbedder {
         let response = self.client
             .post(&url)
             .bearer_auth(&token)
+            .header("editor-version", "vscode/1.96.0")
+            .header("User-Agent", "alchemy/0.1.0")
             .json(&body)
             .send()
             .await?;

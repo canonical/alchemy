@@ -344,4 +344,30 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert!(v["ok"].as_bool().unwrap());
     }
+
+    #[test]
+    fn test_utf8_floor_ascii() {
+        let s = "hello world";
+        assert_eq!(utf8_floor(s, 5), 5);
+    }
+
+    #[test]
+    fn test_utf8_floor_multibyte_at_boundary() {
+        // "é" is 2 bytes (0xC3 0xA9). If max lands on byte 1 (inside the char), floor to 0.
+        let s = "é world"; // bytes: [0xC3, 0xA9, 0x20, ...]
+        assert_eq!(utf8_floor(s, 1), 0); // byte 1 is inside 'é', floor to 0
+        assert_eq!(utf8_floor(s, 2), 2); // byte 2 is the boundary after 'é'
+    }
+
+    #[test]
+    fn test_utf8_floor_exactly_at_char_boundary() {
+        let s = "ab"; // 2 ASCII bytes
+        assert_eq!(utf8_floor(s, 2), 2);
+        assert_eq!(utf8_floor(s, 10), 2); // max > len → clamped to len
+    }
+
+    #[test]
+    fn test_utf8_floor_empty() {
+        assert_eq!(utf8_floor("", 5), 0);
+    }
 }

@@ -822,4 +822,97 @@ mod tests {
         // Two requests were made (one per turn).
         assert_eq!(server.received_requests().await.unwrap().len(), 2);
     }
+
+    // ── Unit tests for tail_start_for_turns ──
+
+    fn user_msg() -> Message {
+        Message { role: MessageRole::User, content: Some("u".into()), tool_calls: None, tool_call_id: None }
+    }
+    fn asst_msg() -> Message {
+        Message { role: MessageRole::Assistant, content: Some("a".into()), tool_calls: None, tool_call_id: None }
+    }
+    fn tool_msg() -> Message {
+        Message { role: MessageRole::Tool, content: Some("t".into()), tool_calls: None, tool_call_id: Some("id".into()) }
+    }
+
+    #[test]
+    fn test_tail_start_empty() {
+        assert_eq!(tail_start_for_turns(&[], 6), 0);
+    }
+
+    #[test]
+    fn test_tail_start_fewer_turns_than_keep() {
+        let msgs = vec![user_msg(), asst_msg(), user_msg(), asst_msg()];
+        // Only 2 turns; keep 6 → keep everything (index 0).
+        assert_eq!(tail_start_for_turns(&msgs, 6), 0);
+    }
+
+    #[test]
+    fn test_tail_start_exact_turns() {
+        // Build exactly 6 turns.
+        let mut msgs = Vec::new();
+        for _ in 0..6 {
+            msgs.push(user_msg());
+            msgs.push(asst_msg());
+        }
+        // All 6 turns → keep from index 0.
+        assert_eq!(tail_start_for_turns(&msgs, 6), 0);
+    }
+
+    #[test]
+    fn test_tail_start_more_turns_than_keep() {
+        // 8 turns → keep last 6 → skip first 2.
+        let mut msgs = Vec::new();
+        for _ in 0..8 {
+            msgs.push(user_msg());
+            msgs.push(asst_msg());
+        }
+        // The 6th-most-recent user msg is at index (8-6)*2 = 4 (0-indexed).
+        assert_eq!(tail_start_for_turns(&msgs, 6), 4);
+    }
+
+    #[test]
+    fn test_tail_start_tool_heavy_turn() {
+        // 3 turns, but one turn has 5 tool calls: u, a(tc), t, t, t, t, t, a(final).
+        let turn1 = [user_msg(), asst_msg()];
+        let turn2: Vec<Message> = {
+            let mut v = vec![user_msg(), asst_msg()];
+            for _ in 0..5 { v.push(tool_msg()); }
+            v.push(asst_msg());
+            v
+        };
+        let turn3 = [user_msg(), asst_msg()];
+        let msgs: Vec<Message> = turn1.iter().chain(turn2.iter()).chain(turn3.iter()).cloned().collect();
+        // Keep 2 turns → skip turn1 (2 msgs) → index 2.
+        assert_eq!(tail_start_for_turns(&msgs, 2), 2);
+    }
+
+    #[test]
+    fn test_compact_history_tool_heavy() {
+        // 10 turns each with 3 tool calls = 50 messages. Verify compact_history
+        // keeps exactly 6 turns worth (not 12 raw messages).
+        let config = AgentConfig {
+            model: "m".into(),
+            system_prompt: "s".into(),
+            max_steps: 30,
+            timeout_secs: 30,
+            context_window: 100, // Very small to force compaction.
+        };
+        let provider = MockProvider::new(vec![]);
+        let agent = Agent::new(config, Box::new(provider), crate::tools::ToolRegistry::new());
+
+        let mut history: Vec<Message> = Vec::new();
+        for _ in 0..10 {
+            history.push(user_msg());
+            history.push(asst_msg()); // assistant with tool calls
+            for _ in 0..3 { history.push(tool_msg()); }
+            history.push(asst_msg()); // final assistant
+        }
+
+        agent.compact_history(&mut history);
+
+        // Count user messages remaining — should be exactly 6 turns.
+        let user_count = history.iter().filter(|m| m.role == MessageRole::User).count();
+        assert_eq!(user_count, 6, "Should keep exactly 6 logical turns, got {}", user_count);
+    }
 }

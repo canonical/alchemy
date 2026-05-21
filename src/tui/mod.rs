@@ -318,6 +318,9 @@ impl TuiApp {
                     });
                     self.messages
                         .push(TuiMessage { role: "assistant".into(), content: answer });
+                    // Always scroll into view when the response arrives, even if
+                    // the user scrolled up during generation.
+                    self.conv_follow = true;
 
                     let _ = history::save_messages(
                         &format!("{}/messages.jsonl", history_path),
@@ -640,7 +643,25 @@ impl TuiApp {
                 self.input_cursor = self.input.len();
             }
 
+            // ── Conversation scrolling (PageUp/PageDown + Alt+Up/Down) ────────
+            // These always scroll the conversation panel regardless of focus,
+            // because Ctrl+Arrow is often stolen by the terminal for scrollback.
+            (KeyModifiers::NONE, KeyCode::PageUp)
+            | (KeyModifiers::ALT, KeyCode::Up) => {
+                self.conv_follow = false;
+                self.conv_scroll = self.conv_scroll.saturating_sub(10);
+            }
+            (KeyModifiers::NONE, KeyCode::PageDown)
+            | (KeyModifiers::ALT, KeyCode::Down) => {
+                self.conv_scroll = self.conv_scroll.saturating_add(10);
+                if self.conv_scroll as u16 >= self.conv_max_scroll {
+                    self.conv_follow = true;
+                    self.conv_scroll = self.conv_max_scroll as usize;
+                }
+            }
+
             // ── Panel scrolling (Ctrl+Up / Ctrl+Down) ───────────────────────
+            // Scrolls the focused panel; falls back to conversation if panel 0.
             (KeyModifiers::CONTROL, KeyCode::Up) => {
                 match self.focused_panel {
                     0 => {
@@ -655,7 +676,7 @@ impl TuiApp {
             (KeyModifiers::CONTROL, KeyCode::Down) => {
                 match self.focused_panel {
                     0 => {
-                        self.conv_scroll += 5;
+                        self.conv_scroll = self.conv_scroll.saturating_add(5);
                         if self.conv_scroll as u16 >= self.conv_max_scroll {
                             self.conv_follow = true;
                             self.conv_scroll = self.conv_max_scroll as usize;

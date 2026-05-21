@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crate::rag::store::VectorStore;
+use crate::rag::store::{VectorStoreBackend, SearchHit};
 
 pub struct Retriever {
     pub top_k: usize,
@@ -16,16 +16,18 @@ impl Retriever {
         Self { top_k }
     }
 
-    pub async fn search(&self, store: &VectorStore, query_embedding: &[f32]) -> Result<Vec<SearchResult>> {
+    pub async fn search(
+        &self,
+        store: &dyn VectorStoreBackend,
+        query_embedding: &[f32],
+    ) -> Result<Vec<SearchResult>> {
         // Retrieve a larger candidate set, then apply MMR to diversify results.
         let candidate_k = (self.top_k * 3).max(10);
-        let scored = store.search(query_embedding, candidate_k).await?;
-        let mut candidates = Vec::new();
-
-        for (id, score) in scored {
-            let (content, source) = store.get_chunk(id).await?;
-            candidates.push(SearchResult { content, source, score });
-        }
+        let hits: Vec<SearchHit> = store.search(query_embedding, candidate_k).await?;
+        let candidates: Vec<SearchResult> = hits
+            .into_iter()
+            .map(|h| SearchResult { content: h.content, source: h.source, score: h.score })
+            .collect();
 
         Ok(mmr_rerank(candidates, self.top_k))
     }

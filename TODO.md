@@ -6,7 +6,7 @@
 - [x] **Embedding provider selection** — `main.rs` selects embed provider based on `ALCHEMY_RAG_EMBED_PROVIDER` / `ALCHEMY_PROVIDER`; validation exits with code 2 when non-embedding provider is used without an explicit `ALCHEMY_RAG_EMBED_PROVIDER`
 - [x] **Reranking** — `retriever.rs` implements MMR (Maximal Marginal Relevance) reranking. Note: per-chunk embeddings are not persisted, so inter-candidate similarity is approximated via relevance-score proximity rather than true embedding-space distance.
 - [x] **`sqlite-vec` extension** — `sqlite-vec` v0.1.9 statically linked via `cc::Build` + `sqlite3_auto_extension`; `store.rs` uses a `vec0` virtual table with `distance_metric=cosine`; auto-migrates old BLOB-schema DBs on open (chunks content preserved, embeddings dropped with a warning)
-- [ ] **External vector store backends** — Only SQLite implemented. Missing Qdrant and Chroma HTTP backends (`ALCHEMY_RAG_STORE=qdrant|chroma`)
+- [x] **External vector store backends** — Qdrant and Chroma HTTP backends implemented. `VectorStoreBackend` trait in `store.rs` abstracts over SQLite/Qdrant/Chroma. Backend selected via `ALCHEMY_RAG_STORE=sqlite|qdrant|chroma` (default: `sqlite`). Qdrant/Chroma require `ALCHEMY_RAG_STORE_URL`; optional `ALCHEMY_RAG_STORE_API_KEY` and `ALCHEMY_RAG_STORE_COLLECTION` (default: `"alchemy"`).
 
 ## TUI Mode
 

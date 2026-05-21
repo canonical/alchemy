@@ -9,7 +9,7 @@ use std::path::Path;
 pub struct RagPipeline {
     pub chunker: chunker::Chunker,
     pub embedder: Box<dyn embedder::Embedder>,
-    pub store: store::VectorStore,
+    pub store: Box<dyn store::VectorStoreBackend>,
     pub retriever: retriever::Retriever,
 }
 
@@ -21,15 +21,52 @@ pub struct RagConfig {
     pub chunk_size: usize,
     pub chunk_overlap: usize,
     pub top_k: usize,
+    // SQLite
     pub store_path: String,
     pub dimensions: usize,
+    // External store backend: "sqlite" (default), "qdrant", "chroma"
+    pub store_backend: String,
+    pub store_url: Option<String>,
+    pub store_api_key: Option<String>,
+    pub store_collection: Option<String>,
 }
 
 impl RagPipeline {
     pub async fn new(config: RagConfig) -> Result<Self> {
         let chunker = chunker::Chunker::new(config.chunk_size, config.chunk_overlap);
-        let store = store::VectorStore::new(&config.store_path, config.dimensions).await?;
         let retriever = retriever::Retriever::new(config.top_k);
+
+        let collection = config.store_collection
+            .clone()
+            .unwrap_or_else(|| "alchemy".to_string());
+
+        let store: Box<dyn store::VectorStoreBackend> = match config.store_backend.as_str() {
+            "qdrant" => {
+                let url = config.store_url.clone()
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "ALCHEMY_RAG_STORE_URL is required for Qdrant backend"
+                    ))?;
+                Box::new(store::QdrantStore::new(
+                    url,
+                    config.store_api_key.clone(),
+                    collection,
+                    config.dimensions,
+                ).await?)
+            }
+            "chroma" => {
+                let url = config.store_url.clone()
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "ALCHEMY_RAG_STORE_URL is required for Chroma backend"
+                    ))?;
+                Box::new(store::ChromaStore::new(
+                    url,
+                    config.store_api_key.clone(),
+                    collection,
+                    config.dimensions,
+                ).await?)
+            }
+            _ => Box::new(store::SqliteStore::new(&config.store_path, config.dimensions).await?),
+        };
 
         // Create embedder based on provider
         let embedder: Box<dyn embedder::Embedder> = match config.embed_provider.as_str() {
@@ -80,7 +117,7 @@ impl RagPipeline {
 
     pub async fn search(&self, query: &str) -> Result<Vec<retriever::SearchResult>> {
         let embedding = self.embedder.embed(query).await?;
-        self.retriever.search(&self.store, &embedding).await
+        self.retriever.search(self.store.as_ref(), &embedding).await
     }
 
     pub async fn status(&self) -> Result<store::StoreStatus> {

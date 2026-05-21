@@ -286,19 +286,18 @@ async fn run_pipe(cli: Cli) -> Result<i32> {
         .unwrap_or(false);
 
     if rag_enabled {
-        // Validate store backend — only SQLite is implemented.
-        let rag_store = std::env::var("ALCHEMY_RAG_STORE").unwrap_or_else(|_| "sqlite".to_string());
-        if !matches!(rag_store.as_str(), "sqlite") {
-            eprintln!("Error: ALCHEMY_RAG_STORE={} is not supported. Only 'sqlite' is implemented.", rag_store);
-            return Ok(2);
-        }
-
         // Validate embedding provider
         let embed_provider = std::env::var("ALCHEMY_RAG_EMBED_PROVIDER")
             .unwrap_or_else(|_| provider_name.clone());
 
         if !matches!(embed_provider.as_str(), "openai" | "gemini" | "ollama" | "github-copilot" | "openrouter") {
             eprintln!("Error: RAG embedding provider '{}' does not support embeddings. Use openai, gemini, ollama, github-copilot, or openrouter. Set ALCHEMY_RAG_EMBED_PROVIDER.", embed_provider);
+            return Ok(2);
+        }
+
+        let rag_store_backend = std::env::var("ALCHEMY_RAG_STORE").unwrap_or_else(|_| "sqlite".to_string());
+        if !matches!(rag_store_backend.as_str(), "sqlite" | "qdrant" | "chroma") {
+            eprintln!("Error: ALCHEMY_RAG_STORE={} is not supported. Use sqlite, qdrant, or chroma.", rag_store_backend);
             return Ok(2);
         }
 
@@ -330,6 +329,10 @@ async fn run_pipe(cli: Cli) -> Result<i32> {
             top_k,
             store_path,
             dimensions,
+            store_backend: rag_store_backend,
+            store_url: std::env::var("ALCHEMY_RAG_STORE_URL").ok(),
+            store_api_key: std::env::var("ALCHEMY_RAG_STORE_API_KEY").ok(),
+            store_collection: std::env::var("ALCHEMY_RAG_STORE_COLLECTION").ok(),
         };
 
         if let Ok(pipeline) = rag::RagPipeline::new(rag_config).await {
@@ -425,8 +428,8 @@ async fn run_tui(
 
     // Validate ALCHEMY_RAG_STORE before any setup.
     let rag_store = std::env::var("ALCHEMY_RAG_STORE").unwrap_or_else(|_| "sqlite".to_string());
-    if !matches!(rag_store.as_str(), "sqlite") {
-        eprintln!("Error: ALCHEMY_RAG_STORE={} is not supported. Only 'sqlite' is implemented.", rag_store);
+    if !matches!(rag_store.as_str(), "sqlite" | "qdrant" | "chroma") {
+        eprintln!("Error: ALCHEMY_RAG_STORE={} is not supported. Use sqlite, qdrant, or chroma.", rag_store);
         return Ok(2);
     }
 
@@ -544,6 +547,11 @@ async fn run_rag(action: RagAction) -> Result<()> {
         anyhow::bail!("RAG embedding provider '{}' does not support embeddings. Use openai, gemini, ollama, github-copilot, or openrouter. Set ALCHEMY_RAG_EMBED_PROVIDER.", embed_provider);
     }
 
+    let rag_store_backend = std::env::var("ALCHEMY_RAG_STORE").unwrap_or_else(|_| "sqlite".to_string());
+    if !matches!(rag_store_backend.as_str(), "sqlite" | "qdrant" | "chroma") {
+        anyhow::bail!("ALCHEMY_RAG_STORE={} is not supported. Use sqlite, qdrant, or chroma.", rag_store_backend);
+    }
+
     let store_path = std::env::var("ALCHEMY_RAG_STORE_PATH")
         .unwrap_or_else(|_| dirs_path("rag/vectors.db"));
     let chunk_size: usize = std::env::var("ALCHEMY_RAG_CHUNK_SIZE").ok().and_then(|s| s.parse().ok()).unwrap_or(512);
@@ -572,6 +580,10 @@ async fn run_rag(action: RagAction) -> Result<()> {
         top_k,
         store_path,
         dimensions,
+        store_backend: rag_store_backend,
+        store_url: std::env::var("ALCHEMY_RAG_STORE_URL").ok(),
+        store_api_key: std::env::var("ALCHEMY_RAG_STORE_API_KEY").ok(),
+        store_collection: std::env::var("ALCHEMY_RAG_STORE_COLLECTION").ok(),
     };
 
     let mut pipeline = rag::RagPipeline::new(rag_config).await?;

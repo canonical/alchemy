@@ -432,8 +432,12 @@ async fn run_tui(
     let config = AgentConfig {
         model: model.clone(),
         system_prompt: full_system,
-        max_steps: max_steps.unwrap_or(30),
-        timeout_secs: timeout.unwrap_or(30),
+        max_steps: max_steps
+            .or_else(|| std::env::var("ALCHEMY_MAX_STEPS").ok().and_then(|s| s.parse().ok()))
+            .unwrap_or(30),
+        timeout_secs: timeout
+            .or_else(|| std::env::var("ALCHEMY_TIMEOUT_SECS").ok().and_then(|s| s.parse().ok()))
+            .unwrap_or(30),
         context_window: std::env::var("ALCHEMY_CONTEXT_WINDOW").ok().and_then(|s| s.parse().ok()).unwrap_or(128000),
     };
 

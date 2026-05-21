@@ -300,9 +300,8 @@ impl Agent {
 
         if estimated_tokens > threshold {
             let system = messages[0].clone();
-            // 6 logical turns = 12 messages (user + assistant per turn).
-            let keep_count = 12.min(messages.len() - 1);
-            let tail: Vec<Message> = messages[messages.len() - keep_count..].to_vec();
+            let tail_start = tail_start_for_turns(&messages[1..], 6);
+            let tail: Vec<Message> = messages[1 + tail_start..].to_vec();
             messages.clear();
             messages.push(system);
             messages.extend(tail);
@@ -319,11 +318,33 @@ impl Agent {
         let estimated_tokens = (total_chars + self.config.system_prompt.len() / 4) / 4;
         let threshold = (self.config.context_window as f64 * 0.85) as usize;
 
-        if estimated_tokens > threshold && history.len() > 12 {
-            let tail_start = history.len() - 12;
-            history.drain(..tail_start);
+        if estimated_tokens > threshold {
+            let tail_start = tail_start_for_turns(history, 6);
+            if tail_start > 0 {
+                history.drain(..tail_start);
+            }
         }
     }
+}
+
+/// Return the index into `messages` (no system message) at which the tail of 6 logical
+/// turns begins.  A logical turn starts at each `User` message.  If there are ≤ 6 turns,
+/// returns 0 (keep everything).
+fn tail_start_for_turns(messages: &[Message], keep_turns: usize) -> usize {
+    // Walk backward counting User messages (each marks the start of a turn).
+    let mut turns_seen = 0usize;
+    let mut i = messages.len();
+    while i > 0 {
+        i -= 1;
+        if messages[i].role == MessageRole::User {
+            turns_seen += 1;
+            if turns_seen == keep_turns {
+                return i; // Keep from this index onward.
+            }
+        }
+    }
+    // Fewer than `keep_turns` turns present — keep everything.
+    0
 }
 
 /// Result of one tool call, kept together so we don't have to re-look-up the call.

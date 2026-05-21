@@ -8,6 +8,8 @@ use crate::agent::{Agent, AgentConfig};
 use crate::tools::ToolRegistry;
 use crate::providers;
 
+const DEFAULT_SYSTEM_PROMPT: &str = "You are Alchemy, a CI/CD AI agent. Use the provided tools to accomplish tasks.\nBe concise. Report results as structured data when possible. If a tool fails,\nanalyze the error and either retry with a corrected approach or report the\nfailure with your analysis.";
+
 pub async fn run_check(input: ConcourseCheckInput) -> Result<Vec<ConcourseVersion>> {
     check::run(input).await
 }
@@ -40,7 +42,7 @@ pub(crate) fn create_agent_from_source(
 
     let system_prompt = system_override
         .or(source.system_prompt.as_deref())
-        .unwrap_or("You are Alchemy, a CI/CD AI agent. Use the provided tools to accomplish tasks. Be concise. Report results as structured data when possible.")
+        .unwrap_or(DEFAULT_SYSTEM_PROMPT)
         .to_string();
 
     let max_steps = max_steps_override.or(source.max_steps).unwrap_or(30);

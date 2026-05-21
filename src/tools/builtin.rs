@@ -109,7 +109,7 @@ async fn execute_read_file(args: &serde_json::Value) -> Result<String> {
 
     let truncated = content.len() > MAX_READ_BYTES;
     let content = if truncated {
-        content[..MAX_READ_BYTES].to_string()
+        content[..utf8_floor(&content, MAX_READ_BYTES)].to_string()
     } else {
         content
     };
@@ -181,10 +181,21 @@ async fn execute_cmd(args: &serde_json::Value, default_timeout: u64) -> Result<S
 
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
+    command.kill_on_drop(true);
+
+    let child = match command.spawn() {
+        Ok(c) => c,
+        Err(e) => return Ok(json!({
+            "stdout": "",
+            "stderr": format!("Failed to spawn command: {}", e),
+            "exit_code": -1,
+            "timed_out": false
+        }).to_string()),
+    };
 
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(timeout),
-        command.output(),
+        child.wait_with_output(),
     )
     .await;
 
@@ -209,6 +220,7 @@ async fn execute_cmd(args: &serde_json::Value, default_timeout: u64) -> Result<S
             }).to_string())
         }
         Err(_) => {
+            // kill_on_drop(true) ensures the process is killed when `child` is dropped.
             Ok(json!({
                 "stdout": "",
                 "stderr": "Command timed out",
@@ -240,7 +252,7 @@ async fn execute_fetch_url(args: &serde_json::Value, timeout_secs: u64) -> Resul
     let body = resp.text().await?;
     let truncated = body.len() > MAX_READ_BYTES;
     let body = if truncated {
-        body[..MAX_READ_BYTES].to_string()
+        body[..utf8_floor(&body, MAX_READ_BYTES)].to_string()
     } else {
         body
     };
@@ -251,6 +263,16 @@ async fn execute_fetch_url(args: &serde_json::Value, timeout_secs: u64) -> Resul
         "content_type": content_type,
         "truncated": truncated
     }).to_string())
+}
+
+/// Return the largest byte index ≤ `max` that is a valid UTF-8 char boundary.
+fn utf8_floor(s: &str, max: usize) -> usize {
+    let max = max.min(s.len());
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    end
 }
 
 #[cfg(test)]

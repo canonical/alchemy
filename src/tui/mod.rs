@@ -45,11 +45,23 @@ pub struct SkillEntry {
     pub scripts: Vec<String>,
 }
 
+/// One tool exposed by an MCP server.
+#[derive(Clone)]
+pub struct McpToolEntry {
+    /// Display name (original, without the `mcp_<server>_` prefix).
+    pub name: String,
+    pub description: String,
+}
+
 /// A group of tools from one MCP server, shown in the Ctrl+Shift+M overlay.
 #[derive(Clone)]
 pub struct McpEntry {
     pub server: String,
-    pub tools: Vec<String>,
+    /// `stdio` or `sse`
+    pub transport: String,
+    /// For stdio: the command string. For sse: the URL.
+    pub endpoint: String,
+    pub tools: Vec<McpToolEntry>,
 }
 
 pub struct TuiApp {

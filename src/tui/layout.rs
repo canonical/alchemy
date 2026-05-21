@@ -495,6 +495,35 @@ fn draw_info_overlay(
     f.render_widget(p, popup_area);
 }
 
+/// Word-wrap `text` to fit within `max_width` columns, indented by `indent` spaces.
+/// Returns one `Line` per wrapped row, all styled with `style`.
+fn wrap_desc(text: &str, indent: usize, max_width: usize, style: Style) -> Vec<Line<'static>> {
+    let prefix = " ".repeat(indent);
+    let usable = max_width.saturating_sub(indent).max(10);
+    let mut result = Vec::new();
+    let mut current = prefix.clone();
+    let mut current_len = 0usize;
+
+    for word in text.split_whitespace() {
+        if current_len == 0 {
+            current.push_str(word);
+            current_len = word.len();
+        } else if current_len + 1 + word.len() <= usable {
+            current.push(' ');
+            current.push_str(word);
+            current_len += 1 + word.len();
+        } else {
+            result.push(Line::from(Span::styled(current.clone(), style)));
+            current = format!("{}{}", prefix, word);
+            current_len = word.len();
+        }
+    }
+    if current_len > 0 || result.is_empty() {
+        result.push(Line::from(Span::styled(current, style)));
+    }
+    result
+}
+
 fn draw_skills_overlay(
     f: &mut Frame,
     area: Rect,
@@ -525,15 +554,12 @@ fn draw_skills_overlay(
             )));
             lines.push(divider());
             if !skill.description.is_empty() {
-                lines.push(Line::from(Span::styled(
-                    format!("  {}", skill.description),
-                    desc,
-                )));
+                lines.extend(wrap_desc(&skill.description, 4, inner_w, desc));
             }
             for script in &skill.scripts {
                 lines.push(Line::from(vec![
                     Span::raw("    "),
-                    Span::styled(format!("{:<20}", "script:"), key),
+                    Span::styled("script: ".to_string(), key),
                     Span::styled(script.clone(), desc),
                 ]));
             }
@@ -561,6 +587,7 @@ fn draw_mcp_overlay(
     let header = Style::default().fg(t.help_header).add_modifier(Modifier::BOLD);
     let key    = Style::default().fg(t.help_key).add_modifier(Modifier::BOLD);
     let desc   = Style::default().fg(t.help_desc);
+    let muted  = Style::default().fg(t.help_sep);
     let sep    = Style::default().fg(t.help_sep);
     let inner_w = area.width.saturating_sub(6) as usize;
     let divider = || Line::from(Span::styled("─".repeat(inner_w), sep));
@@ -574,17 +601,38 @@ fn draw_mcp_overlay(
         )));
     } else {
         for entry in mcps {
-            lines.push(Line::from(Span::styled(
-                format!("  🔌 {}", entry.server),
-                header,
-            )));
+            // Server heading: "🔌 servername  [stdio]  cmd"
+            let transport_tag = if entry.transport.is_empty() {
+                String::new()
+            } else {
+                format!("  [{}]", entry.transport)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!("  🔌 {}", entry.server), header),
+                Span::styled(transport_tag, muted),
+            ]));
+            if !entry.endpoint.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("    {}", entry.endpoint),
+                    muted,
+                )));
+            }
             lines.push(divider());
-            for tool in &entry.tools {
-                lines.push(Line::from(vec![
-                    Span::raw("    "),
-                    Span::styled(format!("{:<20}", "tool:"), key),
-                    Span::styled(tool.clone(), desc),
-                ]));
+
+            if entry.tools.is_empty() {
+                lines.push(Line::from(Span::styled("    (no tools discovered)", muted)));
+            } else {
+                for tool in &entry.tools {
+                    // Tool name row
+                    lines.push(Line::from(vec![
+                        Span::raw("    "),
+                        Span::styled(tool.name.clone(), key),
+                    ]));
+                    // Description (word-wrapped, indented 6)
+                    if !tool.description.is_empty() {
+                        lines.extend(wrap_desc(&tool.description, 6, inner_w, desc));
+                    }
+                }
             }
             lines.push(Line::from(""));
         }

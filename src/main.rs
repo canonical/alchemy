@@ -398,19 +398,35 @@ async fn run_tui(
     let mut mcp_display: Vec<tui::McpEntry> = Vec::new();
     if !mcp_configs.is_empty() {
         let mcp_tools = tools::mcp::discover_tools(&mcp_configs).await;
-        // Collect display info grouped by server.
-        let mut server_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        // Collect display info grouped by server, preserving tool descriptions.
+        let mut server_map: std::collections::HashMap<String, Vec<tui::McpToolEntry>> =
+            std::collections::HashMap::new();
         for t in &mcp_tools {
+            let prefix = format!("mcp_{}_", t.server_name);
+            let display_name = t.definition.function.name
+                .strip_prefix(&prefix)
+                .unwrap_or(&t.definition.function.name)
+                .to_string();
             server_map
                 .entry(t.server_name.clone())
                 .or_default()
-                .push(t.definition.function.name.clone());
+                .push(tui::McpToolEntry {
+                    name: display_name,
+                    description: t.definition.function.description.clone(),
+                });
         }
         let mut servers: Vec<String> = server_map.keys().cloned().collect();
         servers.sort();
         for srv in servers {
             let tools_list = server_map.remove(&srv).unwrap_or_default();
-            mcp_display.push(tui::McpEntry { server: srv, tools: tools_list });
+            let cfg = mcp_configs.iter().find(|c| c.name == srv);
+            let transport = cfg.map(|c| c.transport.clone()).unwrap_or_default();
+            let endpoint = cfg.map(|c| {
+                c.cmd.clone()
+                    .or_else(|| c.url.clone())
+                    .unwrap_or_default()
+            }).unwrap_or_default();
+            mcp_display.push(tui::McpEntry { server: srv, transport, endpoint, tools: tools_list });
         }
         registry.add_mcp_tools(mcp_tools);
     }

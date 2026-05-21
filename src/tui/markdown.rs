@@ -1,15 +1,16 @@
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
+use crate::tui::theme::ThemePalette;
 
-/// Render a markdown string into a list of styled ratatui Lines.
-/// Used for assistant messages in the TUI conversation panel.
-pub fn render(input: &str) -> Vec<Line<'static>> {
+/// Render a markdown string into a list of styled ratatui Lines using the
+/// supplied theme palette. Used for assistant messages in the TUI.
+pub fn render(input: &str, t: &ThemePalette) -> Vec<Line<'static>> {
     let parser = Parser::new(input);
 
     let mut lines: Vec<Line<'static>> = Vec::new();
     let mut current: Vec<Span<'static>> = Vec::new();
-    let mut style = Style::default().fg(Color::Green);
+    let mut style = Style::default().fg(t.md_text);
 
     let mut in_code_block = false;
     let mut list_depth: usize = 0;
@@ -25,7 +26,7 @@ pub fn render(input: &str) -> Vec<Line<'static>> {
                 Tag::Heading { level, .. } => {
                     flush(&mut current, &mut lines);
                     style_stack.push(style);
-                    style = heading_style(level);
+                    style = heading_style(level, t);
                 }
                 Tag::Strong => {
                     style_stack.push(style);
@@ -37,9 +38,9 @@ pub fn render(input: &str) -> Vec<Line<'static>> {
                 }
                 Tag::BlockQuote(_) => {
                     flush(&mut current, &mut lines);
-                    current.push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
+                    current.push(Span::styled("│ ", Style::default().fg(t.md_quote)));
                     style_stack.push(style);
-                    style = style.add_modifier(Modifier::ITALIC).fg(Color::Gray);
+                    style = style.add_modifier(Modifier::ITALIC).fg(t.md_quote);
                 }
                 Tag::CodeBlock(kind) => {
                     flush(&mut current, &mut lines);
@@ -52,16 +53,16 @@ pub fn render(input: &str) -> Vec<Line<'static>> {
                     if !lang.is_empty() {
                         lines.push(Line::from(Span::styled(
                             format!("┌─ {} ─", lang),
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(t.md_separator),
                         )));
                     } else {
                         lines.push(Line::from(Span::styled(
                             "┌─",
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(t.md_separator),
                         )));
                     }
                     style_stack.push(style);
-                    style = Style::default().fg(Color::Cyan);
+                    style = Style::default().fg(t.md_code_fg).bg(t.md_code_bg);
                 }
                 Tag::List(_) => {
                     list_depth += 1;
@@ -70,7 +71,10 @@ pub fn render(input: &str) -> Vec<Line<'static>> {
                 Tag::Item => {
                     flush(&mut current, &mut lines);
                     let indent = "  ".repeat(list_depth.saturating_sub(1));
-                    current.push(Span::raw(format!("{}• ", indent)));
+                    current.push(Span::styled(
+                        format!("{}• ", indent),
+                        Style::default().fg(t.md_list),
+                    ));
                 }
                 Tag::Paragraph => {
                     flush(&mut current, &mut lines);
@@ -91,7 +95,7 @@ pub fn render(input: &str) -> Vec<Line<'static>> {
                     flush(&mut current, &mut lines);
                     lines.push(Line::from(Span::styled(
                         "└─",
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(t.md_separator),
                     )));
                     if let Some(prev) = style_stack.pop() {
                         style = prev;
@@ -114,7 +118,7 @@ pub fn render(input: &str) -> Vec<Line<'static>> {
                 if in_code_block {
                     for src_line in text.lines() {
                         lines.push(Line::from(vec![
-                            Span::styled("│ ", Style::default().fg(Color::DarkGray)),
+                            Span::styled("│ ", Style::default().fg(t.md_separator)),
                             Span::styled(src_line.to_string(), style),
                         ]));
                     }
@@ -125,7 +129,7 @@ pub fn render(input: &str) -> Vec<Line<'static>> {
             Event::Code(code) => {
                 current.push(Span::styled(
                     format!("`{}`", code),
-                    Style::default().fg(Color::Cyan).bg(Color::Black),
+                    Style::default().fg(t.md_code_fg).bg(t.md_code_bg),
                 ));
             }
             Event::SoftBreak => {
@@ -138,7 +142,7 @@ pub fn render(input: &str) -> Vec<Line<'static>> {
                 flush(&mut current, &mut lines);
                 lines.push(Line::from(Span::styled(
                     "──────",
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(t.md_separator),
                 )));
             }
             _ => {}
@@ -154,19 +158,20 @@ pub fn render(input: &str) -> Vec<Line<'static>> {
     lines
 }
 
-fn heading_style(level: HeadingLevel) -> Style {
+fn heading_style(level: HeadingLevel, t: &ThemePalette) -> Style {
     let base = Style::default().add_modifier(Modifier::BOLD);
     match level {
-        HeadingLevel::H1 => base.fg(Color::Magenta).add_modifier(Modifier::UNDERLINED),
-        HeadingLevel::H2 => base.fg(Color::Magenta),
-        HeadingLevel::H3 => base.fg(Color::LightMagenta),
-        _ => base.fg(Color::White),
+        HeadingLevel::H1 => base.fg(t.md_heading_h1).add_modifier(Modifier::UNDERLINED),
+        HeadingLevel::H2 => base.fg(t.md_heading_h2),
+        HeadingLevel::H3 => base.fg(t.md_heading_h3),
+        _ => base.fg(t.md_text),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::theme::THEMES;
 
     fn lines_to_text(lines: &[Line]) -> String {
         lines.iter()
@@ -177,21 +182,21 @@ mod tests {
 
     #[test]
     fn renders_plain_text() {
-        let out = render("hello world");
+        let out = render("hello world", &THEMES[0]);
         let text = lines_to_text(&out);
         assert!(text.contains("hello world"), "{:?}", text);
     }
 
     #[test]
     fn renders_inline_code() {
-        let out = render("use the `read_file` tool");
+        let out = render("use the `read_file` tool", &THEMES[0]);
         let text = lines_to_text(&out);
         assert!(text.contains("`read_file`"), "{:?}", text);
     }
 
     #[test]
     fn renders_fenced_code_block() {
-        let out = render("```rust\nfn main() {}\n```");
+        let out = render("```rust\nfn main() {}\n```", &THEMES[0]);
         let text = lines_to_text(&out);
         assert!(text.contains("rust"), "{:?}", text);
         assert!(text.contains("fn main() {}"), "{:?}", text);
@@ -199,7 +204,7 @@ mod tests {
 
     #[test]
     fn renders_list_items() {
-        let out = render("- first\n- second\n");
+        let out = render("- first\n- second\n", &THEMES[0]);
         let text = lines_to_text(&out);
         assert!(text.contains("• first"), "{:?}", text);
         assert!(text.contains("• second"), "{:?}", text);

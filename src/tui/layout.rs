@@ -1,11 +1,12 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 use crate::tui::TuiApp;
+use crate::tui::theme::ThemePalette;
 
 pub fn draw(f: &mut Frame, app: &mut TuiApp) {
     let chunks = Layout::default()
@@ -23,26 +24,27 @@ pub fn draw(f: &mut Frame, app: &mut TuiApp) {
 
     // Help overlay drawn last so it floats above everything.
     if app.show_help {
-        draw_help_overlay(f, f.area());
+        draw_help_overlay(f, f.area(), app.theme());
     }
 }
 
 fn draw_status_bar(f: &mut Frame, app: &mut TuiApp, area: Rect) {
+    let t = app.theme();
     let left = format!(
-        " Alchemy  │ {}  │ {}  │ ⏱ {} steps  │ 📊 {}k tokens",
+        " Alchemy  │ {}  │ {}  │ ⏱ {} steps  │ 📊 {}k tokens  │ 🎨 {}",
         app.session_name,
         app.model_name,
         app.steps,
         app.total_tokens / 1000,
+        t.name,
     );
     let right = "? help ";
 
-    // Build a two-span line: left info (left-aligned) + right hint (right-padded).
     let pad = (area.width as usize).saturating_sub(left.len() + right.len());
     let full = format!("{}{}{}", left, " ".repeat(pad), right);
 
     let p = Paragraph::new(Line::from(vec![
-        Span::styled(full, Style::default().bg(Color::Blue).fg(Color::White)),
+        Span::styled(full, Style::default().bg(t.status_bg).fg(t.status_fg)),
     ]));
     f.render_widget(p, area);
 }
@@ -60,7 +62,14 @@ fn draw_main_area(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     draw_side_panels(f, app, chunks[1]);
 }
 
-fn render_message_lines(prefix: &str, content: &str, color: Color, inner_width: usize) -> Vec<Line<'static>> {
+fn render_message_lines(
+    prefix: &str,
+    content: &str,
+    t: &ThemePalette,
+    is_user: bool,
+    inner_width: usize,
+) -> Vec<Line<'static>> {
+    let color = if is_user { t.user_fg } else { t.assistant_fg };
     let mut lines = Vec::new();
     for source_line in content.lines() {
         let full = format!("{}{}", prefix, source_line);
@@ -79,34 +88,34 @@ fn render_message_lines(prefix: &str, content: &str, color: Color, inner_width: 
     lines
 }
 
-/// Render an assistant message: prefix on its own line, then markdown-styled body.
-fn render_assistant_message(prefix: &str, content: &str) -> Vec<Line<'static>> {
+/// Render an assistant message: bold prefix line then markdown-styled body.
+fn render_assistant_message(prefix: &str, content: &str, t: &ThemePalette) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     lines.push(Line::from(Span::styled(
         prefix.trim_end().to_string(),
-        Style::default().fg(Color::Green).add_modifier(ratatui::style::Modifier::BOLD),
+        Style::default().fg(t.assistant_fg).add_modifier(Modifier::BOLD),
     )));
-    lines.extend(crate::tui::markdown::render(content));
+    lines.extend(crate::tui::markdown::render(content, t));
     lines
 }
 
 fn draw_conversation(f: &mut Frame, app: &mut TuiApp, area: Rect) {
-    let inner_width = area.width.saturating_sub(2) as usize; // subtract borders
+    let t = app.theme();
+    let inner_width = area.width.saturating_sub(2) as usize;
     let visible_height = area.height.saturating_sub(2) as usize;
 
     let mut lines = Vec::new();
     for msg in &app.messages {
         if msg.role == "user" {
-            lines.extend(render_message_lines("You: ", &msg.content, Color::Cyan, inner_width));
+            lines.extend(render_message_lines("You: ", &msg.content, t, true, inner_width));
         } else {
-            lines.extend(render_assistant_message("Alchemy:", &msg.content));
+            lines.extend(render_assistant_message("Alchemy:", &msg.content, t));
         }
         lines.push(Line::from(""));
     }
 
-    // Ghost message: streaming in-progress assistant response.
     if let Some(ref content) = app.streaming_content {
-        lines.extend(render_assistant_message("Alchemy:", &format!("{}▋", content)));
+        lines.extend(render_assistant_message("Alchemy:", &format!("{}▋", content), t));
         lines.push(Line::from(""));
     }
 
@@ -120,9 +129,9 @@ fn draw_conversation(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     };
 
     let border_style = if app.focused_panel == 0 {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(t.focused_border)
     } else {
-        Style::default()
+        Style::default().fg(t.normal_border)
     };
     let p = Paragraph::new(lines)
         .block(
@@ -137,6 +146,7 @@ fn draw_conversation(f: &mut Frame, app: &mut TuiApp, area: Rect) {
 }
 
 fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
+    let t = app.theme();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -145,23 +155,26 @@ fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         ])
         .split(area);
 
-    // Tool execution panel — animate in-progress entries with a braille spinner.
+    // Tool execution panel.
     let spinner = crate::tui::widgets::spinner_frame(app.tick);
-    let tool_lines: Vec<Line> = app.tools_log.iter().map(|t| {
-        if t.status == "⏳" {
-            Line::from(format!("{} {}", spinner, t.name))
+    let tool_lines: Vec<Line> = app.tools_log.iter().map(|entry| {
+        if entry.status == "⏳" {
+            Line::from(Span::styled(
+                format!("{} {}", spinner, entry.name),
+                Style::default().fg(t.tool_spinner),
+            ))
         } else {
-            let status_color = if t.success { Color::Green } else { Color::Red };
+            let status_color = if entry.success { t.tool_success } else { t.tool_error };
             Line::from(vec![
-                Span::styled(t.status.clone(), Style::default().fg(status_color)),
-                Span::raw(format!(" {} ({}ms)", t.name, t.duration_ms)),
+                Span::styled(entry.status.clone(), Style::default().fg(status_color)),
+                Span::raw(format!(" {} ({}ms)", entry.name, entry.duration_ms)),
             ])
         }
     }).collect();
     let tools_border = if app.focused_panel == 1 {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(t.focused_border)
     } else {
-        Style::default()
+        Style::default().fg(t.normal_border)
     };
     let tools_max = (tool_lines.len() as u16).saturating_sub(chunks[0].height.saturating_sub(2));
     let tools = Paragraph::new(tool_lines)
@@ -174,28 +187,25 @@ fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         .scroll(((app.tools_scroll as u16).min(tools_max), 0));
     f.render_widget(tools, chunks[0]);
 
-    // File activity panel — fade newly-added rows from yellow → green over ~1s.
-    const FADE_TICKS: usize = 20; // ~1s at 50ms tick
+    // File activity panel — fade newly-added rows.
+    const FADE_TICKS: usize = 20;
     let file_lines: Vec<Line> = app.files_log.iter().map(|fl| {
         let age = app.tick.saturating_sub(fl.added_tick);
-        let style = if age < FADE_TICKS {
-            // Bright yellow at first, dim as it ages, then default.
-            if age < FADE_TICKS / 3 {
-                Style::default().fg(Color::Yellow).add_modifier(ratatui::style::Modifier::BOLD)
-            } else if age < (2 * FADE_TICKS) / 3 {
-                Style::default().fg(Color::LightYellow)
-            } else {
-                Style::default().fg(Color::Green)
-            }
+        let style = if age < FADE_TICKS / 3 {
+            Style::default().fg(t.file_new).add_modifier(Modifier::BOLD)
+        } else if age < (2 * FADE_TICKS) / 3 {
+            Style::default().fg(t.file_mid)
+        } else if age < FADE_TICKS {
+            Style::default().fg(t.file_old)
         } else {
             Style::default()
         };
         Line::from(Span::styled(format!("{} {}", fl.operation, fl.path), style))
     }).collect();
     let files_border = if app.focused_panel == 2 {
-        Style::default().fg(Color::Yellow)
+        Style::default().fg(t.focused_border)
     } else {
-        Style::default()
+        Style::default().fg(t.normal_border)
     };
     let files_max = (file_lines.len() as u16).saturating_sub(chunks[1].height.saturating_sub(2));
     let files = Paragraph::new(file_lines)
@@ -210,14 +220,16 @@ fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
 }
 
 fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
+    let t = app.theme();
+
     let (input_widget, title_style, border_color) = if app.agent_busy {
         let spinner = crate::tui::widgets::spinner_frame(app.tick);
         let content = format!("{} Working…  Ctrl+C to interrupt", spinner);
         let p = Paragraph::new(Span::styled(
             content,
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.input_busy_fg).add_modifier(Modifier::BOLD),
         ));
-        (p, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD), Color::Yellow)
+        (p, Style::default().fg(t.input_busy_fg).add_modifier(Modifier::BOLD), t.input_busy_fg)
     } else {
         let cursor = app.input_cursor.min(app.input.len());
         let before = &app.input[..cursor];
@@ -233,15 +245,15 @@ fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         };
 
         let spans = vec![
-            Span::styled(format!("> {}", before), Style::default().fg(Color::White)),
+            Span::styled(format!("> {}", before), Style::default().fg(t.input_fg)),
             Span::styled(
                 cursor_char.to_string(),
-                Style::default().bg(Color::White).fg(Color::Black),
+                Style::default().bg(t.input_cursor_bg).fg(t.input_cursor_fg),
             ),
-            Span::styled(after.to_string(), Style::default().fg(Color::White)),
+            Span::styled(after.to_string(), Style::default().fg(t.input_fg)),
         ];
         let p = Paragraph::new(Line::from(spans));
-        (p, Style::default().fg(Color::White), Color::White)
+        (p, Style::default().fg(t.input_fg), t.input_fg)
     };
 
     let p = input_widget.block(
@@ -274,16 +286,14 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-fn draw_help_overlay(f: &mut Frame, area: Rect) {
-    let popup_area = centered_rect(62, 80, area);
-
-    // Clear the background of the popup area.
+fn draw_help_overlay(f: &mut Frame, area: Rect, t: &ThemePalette) {
+    let popup_area = centered_rect(62, 85, area);
     f.render_widget(Clear, popup_area);
 
-    let header = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
-    let key    = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
-    let desc   = Style::default().fg(Color::White);
-    let sep    = Style::default().fg(Color::DarkGray);
+    let header = Style::default().fg(t.help_header).add_modifier(Modifier::BOLD);
+    let key    = Style::default().fg(t.help_key).add_modifier(Modifier::BOLD);
+    let desc   = Style::default().fg(t.help_desc);
+    let sep    = Style::default().fg(t.help_sep);
 
     let divider = Line::from(Span::styled(
         "─".repeat(popup_area.width.saturating_sub(4) as usize),
@@ -301,10 +311,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
     }
     macro_rules! section {
         ($title:expr) => {
-            Line::from(Span::styled(
-                format!("  {}", $title),
-                header,
-            ))
+            Line::from(Span::styled(format!("  {}", $title), header))
         };
     }
 
@@ -331,12 +338,16 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         kline!("Enter", "Send message"),
         kline!("Esc", "Clear input / exit history"),
         Line::from(""),
+        section!("Appearance"),
+        divider.clone(),
+        kline!("Ctrl+T", "Cycle theme (Dark → Light → Dracula → Solarized)"),
+        Line::from(""),
         section!("Session"),
         divider.clone(),
         kline!("Ctrl+S", "Save session to disk"),
         kline!("Ctrl+L", "Clear conversation display"),
         Line::from(""),
-        section!("Agent"),
+        section!("Agent / Exit"),
         divider.clone(),
         kline!("Ctrl+C (while busy)", "Interrupt running agent"),
         kline!("Ctrl+C (idle)", "Exit"),
@@ -349,7 +360,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         Line::from(""),
         Line::from(Span::styled(
             "  Press ? or Esc to close",
-            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+            Style::default().fg(t.help_sep).add_modifier(Modifier::ITALIC),
         )),
     ];
 
@@ -359,9 +370,10 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
                 .borders(Borders::ALL)
                 .title("  ⌨  Key Bindings  ")
                 .title_style(header)
-                .border_style(Style::default().fg(Color::Yellow)),
+                .border_style(Style::default().fg(t.help_border)),
         )
         .wrap(Wrap { trim: false });
 
     f.render_widget(p, popup_area);
 }
+

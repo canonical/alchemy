@@ -2,6 +2,7 @@ pub mod history;
 pub mod input;
 pub mod layout;
 pub mod markdown;
+pub mod theme;
 pub mod widgets;
 
 use anyhow::Result;
@@ -80,6 +81,8 @@ pub struct TuiApp {
     abort_handle: Option<tokio::task::AbortHandle>,
     /// When true, the help overlay is rendered and most keys are consumed by it.
     pub show_help: bool,
+    /// Index into `theme::THEMES` for the active color palette.
+    pub theme_idx: usize,
     /// Prompts sent this session, oldest first. Up/Down navigate through them.
     prompt_history: Vec<String>,
     /// Index into `prompt_history` while browsing; `None` means current draft.
@@ -145,10 +148,16 @@ impl TuiApp {
             turn_baseline_tokens: 0,
             abort_handle: None,
             show_help: false,
+            theme_idx: theme::load_theme(),
             prompt_history: Vec::new(),
             history_idx: None,
             history_draft: String::new(),
         }
+    }
+
+    /// Returns the currently active color palette.
+    pub fn theme(&self) -> &'static theme::ThemePalette {
+        &theme::THEMES[self.theme_idx]
     }
 
     pub async fn run(
@@ -353,6 +362,10 @@ impl TuiApp {
             // ── Session management ───────────────────────────────────────────
             (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
                 self.messages.clear();
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('t')) => {
+                self.theme_idx = (self.theme_idx + 1) % theme::THEMES.len();
+                theme::save_theme(self.theme_idx);
             }
             (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
                 let msgs = self.messages.clone();

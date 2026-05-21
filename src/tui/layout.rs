@@ -301,6 +301,7 @@ fn draw_tools_panel(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         Style::default().fg(t.normal_border)
     };
     let max = (tool_lines.len() as u16).saturating_sub(area.height.saturating_sub(2));
+    app.tools_max_scroll = max;
     let tools = Paragraph::new(tool_lines)
         .block(Block::default().borders(Borders::ALL).title("🔧 Tools")
             .border_style(border).style(Style::default().bg(t.panel_bg)))
@@ -356,6 +357,7 @@ fn draw_files_panel(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         Style::default().fg(t.normal_border)
     };
     let max = (file_lines.len() as u16).saturating_sub(area.height.saturating_sub(2));
+    app.files_max_scroll = max;
     let files = Paragraph::new(file_lines)
         .block(Block::default().borders(Borders::ALL).title("📁 Files")
             .border_style(border).style(Style::default().bg(t.panel_bg)))
@@ -455,6 +457,7 @@ fn draw_help_overlay(
         kline!("PgUp / PgDn",   "Scroll conversation ±10 lines"),
         kline!("Alt+↑ / Alt+↓", "Scroll conversation ±10 lines"),
         kline!("Ctrl+↑ / ↓",    "Scroll focused panel ±5 lines"),
+        kline!("Home / End",    "Scroll focused panel top / bottom"),
         Line::from(""),
         section!("Panel Visibility"),
         div(),
@@ -470,7 +473,7 @@ fn draw_help_overlay(
         section!("Cursor Editing"),
         div(),
         kline!("← / →",        "Move cursor left / right"),
-        kline!("Home / End",    "Jump to start / end of line"),
+        kline!("Home / End",    "Start/end of line (when typing)"),
         kline!("Backspace",     "Delete char before cursor"),
         kline!("Delete",        "Delete char at cursor"),
         Line::from(""),

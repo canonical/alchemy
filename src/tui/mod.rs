@@ -93,6 +93,8 @@ pub struct TuiApp {
     pub files_scroll: usize,
     pub conv_follow: bool,
     pub conv_max_scroll: u16,
+    pub tools_max_scroll: u16,
+    pub files_max_scroll: u16,
     pub tick: usize,
     turn_baseline_steps: u32,
     turn_baseline_tokens: u64,
@@ -185,6 +187,8 @@ impl TuiApp {
             files_scroll: 0,
             conv_follow: true,
             conv_max_scroll: 0,
+            tools_max_scroll: 0,
+            files_max_scroll: 0,
             tick: 0,
             turn_baseline_steps: 0,
             turn_baseline_tokens: 0,
@@ -688,10 +692,31 @@ impl TuiApp {
                 self.input_cursor = cursor_right(&self.input, self.input_cursor);
             }
             (KeyModifiers::NONE, KeyCode::Home) => {
-                self.input_cursor = 0;
+                if self.input.is_empty() {
+                    match self.focused_panel {
+                        0 => { self.conv_follow = false; self.conv_scroll = 0; }
+                        1 => { self.tools_scroll = 0; }
+                        2 => { self.files_scroll = 0; }
+                        _ => {}
+                    }
+                } else {
+                    self.input_cursor = 0;
+                }
             }
             (KeyModifiers::NONE, KeyCode::End) => {
-                self.input_cursor = self.input.len();
+                if self.input.is_empty() {
+                    match self.focused_panel {
+                        0 => {
+                            self.conv_follow = true;
+                            self.conv_scroll = self.conv_max_scroll as usize;
+                        }
+                        1 => { self.tools_scroll = self.tools_max_scroll as usize; }
+                        2 => { self.files_scroll = self.files_max_scroll as usize; }
+                        _ => {}
+                    }
+                } else {
+                    self.input_cursor = self.input.len();
+                }
             }
 
             // ── Conversation scrolling (PageUp/PageDown + Alt+Up/Down) ────────

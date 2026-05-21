@@ -38,6 +38,17 @@ impl RagPipeline {
                 config.embed_base_url.clone(),
                 config.embed_model.clone(),
             )),
+            "github-copilot" => Box::new(embedder::CopilotEmbedder::new(
+                config.embed_api_key.unwrap_or_default(),
+                config.embed_base_url.clone(),
+                config.embed_model.clone(),
+            )),
+            "openrouter" => Box::new(embedder::OpenAIEmbedder::new(
+                config.embed_api_key.unwrap_or_default(),
+                Some(config.embed_base_url.clone()
+                    .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string())),
+                config.embed_model.clone(),
+            )),
             "gemini" => Box::new(embedder::GeminiEmbedder::new(
                 config.embed_api_key.unwrap_or_default(),
                 config.embed_base_url.clone(),

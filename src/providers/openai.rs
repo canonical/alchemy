@@ -75,7 +75,7 @@ impl Provider for OpenAiProvider {
 
     fn default_embed_model(&self) -> &str {
         match self.variant.as_str() {
-            "openai" => "text-embedding-3-small",
+            "openai" | "github-copilot" | "openrouter" => "text-embedding-3-small",
             "ollama" => "nomic-embed-text",
             _ => "",
         }
@@ -83,7 +83,7 @@ impl Provider for OpenAiProvider {
 
     fn embed_dimensions(&self) -> usize {
         match self.variant.as_str() {
-            "openai" => 1536,
+            "openai" | "github-copilot" | "openrouter" => 1536,
             "ollama" => 768,
             _ => 0,
         }

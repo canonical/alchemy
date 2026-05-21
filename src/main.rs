@@ -282,8 +282,8 @@ async fn run_pipe(cli: Cli) -> Result<i32> {
         let embed_provider = std::env::var("ALCHEMY_RAG_EMBED_PROVIDER")
             .unwrap_or_else(|_| provider_name.clone());
 
-        if !matches!(embed_provider.as_str(), "openai" | "gemini" | "ollama") {
-            eprintln!("Error: RAG requires embedding provider (openai, gemini, or ollama). Set ALCHEMY_RAG_EMBED_PROVIDER.");
+        if !matches!(embed_provider.as_str(), "openai" | "gemini" | "ollama" | "github-copilot" | "openrouter") {
+            eprintln!("Error: RAG embedding provider '{}' does not support embeddings. Use openai, gemini, ollama, github-copilot, or openrouter. Set ALCHEMY_RAG_EMBED_PROVIDER.", embed_provider);
             return Ok(2);
         }
 
@@ -484,8 +484,8 @@ async fn run_rag(action: RagAction) -> Result<()> {
     let embed_provider = std::env::var("ALCHEMY_RAG_EMBED_PROVIDER")
         .unwrap_or_else(|_| provider_name.clone());
 
-    if !matches!(embed_provider.as_str(), "openai" | "gemini" | "ollama") {
-        anyhow::bail!("RAG requires embedding provider (openai, gemini, or ollama). Set ALCHEMY_RAG_EMBED_PROVIDER.");
+    if !matches!(embed_provider.as_str(), "openai" | "gemini" | "ollama" | "github-copilot" | "openrouter") {
+        anyhow::bail!("RAG embedding provider '{}' does not support embeddings. Use openai, gemini, ollama, github-copilot, or openrouter. Set ALCHEMY_RAG_EMBED_PROVIDER.", embed_provider);
     }
 
     let store_path = std::env::var("ALCHEMY_RAG_STORE_PATH")

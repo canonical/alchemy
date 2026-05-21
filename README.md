@@ -199,7 +199,7 @@ export ALCHEMY_MCP_CONFIG=/path/to/my-mcp.json
 
 ### RAG
 
-`ALCHEMY_RAG_ENABLED=true` enables RAG in pipe mode. The embedding provider must support embeddings (`openai`, `gemini`, or `ollama`); otherwise set `ALCHEMY_RAG_EMBED_PROVIDER` explicitly or Alchemy exits with code 2.
+`ALCHEMY_RAG_ENABLED=true` enables RAG in pipe mode. The embedding provider must support embeddings (`openai`, `github-copilot`, `openrouter`, `gemini`, or `ollama`); otherwise set `ALCHEMY_RAG_EMBED_PROVIDER` explicitly or Alchemy exits with code 2.
 
 | Variable | Default |
 |---|---|

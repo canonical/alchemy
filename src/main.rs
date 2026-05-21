@@ -44,6 +44,10 @@ struct Cli {
     #[arg(long)]
     timeout: Option<u64>,
 
+    /// Auto-confirm non-interactive actions (e.g. loading AGENTS.md)
+    #[arg(long, short = 'y')]
+    yes: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -212,9 +216,20 @@ async fn run_pipe(cli: Cli) -> Result<i32> {
         }
     };
 
-    let system_prompt = cli.system
+    let mut system_prompt = cli.system
         .or_else(|| std::env::var("ALCHEMY_SYSTEM_PROMPT").ok())
         .unwrap_or_else(|| DEFAULT_SYSTEM_PROMPT.to_string());
+
+    // When --yes is passed, auto-load AGENTS.md from the current directory.
+    if cli.yes {
+        if let Ok(agents_content) = std::fs::read_to_string("AGENTS.md") {
+            system_prompt = format!(
+                "{}\n\n---\n# Project instructions (AGENTS.md)\n\n{}",
+                system_prompt,
+                agents_content.trim()
+            );
+        }
+    }
 
     let max_steps = cli.max_steps
         .or_else(|| std::env::var("ALCHEMY_MAX_STEPS").ok().and_then(|s| s.parse().ok()))

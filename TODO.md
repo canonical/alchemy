@@ -5,7 +5,7 @@
 - [x] **Real embedding providers** — OpenAI, Gemini, Ollama, GitHub Copilot, and OpenRouter embedders implemented in `embedder.rs` (5 providers total; Copilot and OpenRouter use the OpenAI-compatible embeddings endpoint)
 - [x] **Embedding provider selection** — `main.rs` selects embed provider based on `ALCHEMY_RAG_EMBED_PROVIDER` / `ALCHEMY_PROVIDER`; validation exits with code 2 when non-embedding provider is used without an explicit `ALCHEMY_RAG_EMBED_PROVIDER`
 - [x] **Reranking** — `retriever.rs` implements MMR (Maximal Marginal Relevance) reranking. Note: per-chunk embeddings are not persisted, so inter-candidate similarity is approximated via relevance-score proximity rather than true embedding-space distance.
-- [ ] **`sqlite-vec` extension** — Spec calls for `sqlite-vec` virtual table (`vec0`); current implementation uses plain SQLite with manual brute-force cosine similarity in Rust
+- [x] **`sqlite-vec` extension** — `sqlite-vec` v0.1.9 statically linked via `cc::Build` + `sqlite3_auto_extension`; `store.rs` uses a `vec0` virtual table with `distance_metric=cosine`; auto-migrates old BLOB-schema DBs on open (chunks content preserved, embeddings dropped with a warning)
 - [ ] **External vector store backends** — Only SQLite implemented. Missing Qdrant and Chroma HTTP backends (`ALCHEMY_RAG_STORE=qdrant|chroma`)
 
 ## TUI Mode

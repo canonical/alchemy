@@ -80,8 +80,8 @@ fn draw_main_area(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(60),
-            Constraint::Percentage(40),
+            Constraint::Percentage(80),
+            Constraint::Percentage(20),
         ])
         .split(area);
 

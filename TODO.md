@@ -40,7 +40,7 @@
 - [x] **Help overlay** — `?` opens a full keybinding reference
 - [x] **Skills overlay** — `Alt+S` shows loaded skills with descriptions
 - [x] **MCP overlay** — `Alt+M` shows connected MCP servers and their tools
-- [ ] **Shift+Enter multiline input** — Not yet implemented (no-op currently)
+- [x] **Shift+Enter multiline input** — Inserts a newline at the cursor; input box grows up to 4 rows; `draw_input` renders each line with `> ` / `  ` prefix; cursor positioned correctly across rows
 
 ## Skills System
 

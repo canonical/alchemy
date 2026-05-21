@@ -20,22 +20,7 @@ use crate::tools::ToolRegistry;
 use crate::types::{AgentResult, Message};
 
 // ── Cursor helpers ────────────────────────────────────────────────────────────
-
-/// Move cursor one Unicode scalar value to the left.
-fn cursor_left(s: &str, pos: usize) -> usize {
-    if pos == 0 { return 0; }
-    let mut p = pos - 1;
-    while p > 0 && !s.is_char_boundary(p) { p -= 1; }
-    p
-}
-
-/// Move cursor one Unicode scalar value to the right.
-fn cursor_right(s: &str, pos: usize) -> usize {
-    if pos >= s.len() { return s.len(); }
-    let mut p = pos + 1;
-    while p < s.len() && !s.is_char_boundary(p) { p += 1; }
-    p
-}
+use input::{cursor_left, cursor_right};
 
 /// A loaded skill shown in the Ctrl+Shift+S overlay.
 #[derive(Clone)]
@@ -601,6 +586,14 @@ impl TuiApp {
                 tokio::spawn(async move {
                     let _ = history::save_messages(&path, &msgs).await;
                 });
+            }
+
+            // ── Multiline newline ─────────────────────────────────────────────
+            (KeyModifiers::SHIFT, KeyCode::Enter) => {
+                if !self.agent_busy {
+                    self.input.insert(self.input_cursor, '\n');
+                    self.input_cursor += 1;
+                }
             }
 
             // ── Send message ─────────────────────────────────────────────────

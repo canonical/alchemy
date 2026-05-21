@@ -614,13 +614,22 @@ Interactive terminal interface launched via `alchemy tui`. Uses `ratatui` + `cro
 | Key | Action |
 |-----|--------|
 | `Enter` | Send message |
+| `Shift+Enter` | Insert newline (multiline input) |
 | `Ctrl+C` | Interrupt current agent run |
 | `Ctrl+D` | Exit TUI |
 | `Tab` | Cycle panel focus |
-| `Ctrl+L` | Clear conversation |
+| `Ctrl+L` | Clear conversation and reset session |
 | `Ctrl+S` | Manually save session |
-| `↑/↓` | Scroll within focused panel |
-| `Ctrl+↑/↓` | Scroll conversation history |
+| `↑/↓` | Navigate prompt history (in input); scroll focused panel (when input empty) |
+| `Home/End` | Scroll focused panel to top/bottom (when input empty); move cursor (otherwise) |
+| `PageUp/PageDown` | Scroll focused panel |
+| `Alt+↑/↓`, `Ctrl+↑/↓` | Scroll focused panel |
+| `Alt+T` | Toggle Tools panel |
+| `Alt+F` | Toggle Files panel |
+| `Alt+C` | Cycle colour theme |
+| `Alt+S` | Show loaded Skills overlay |
+| `Alt+M` | Show MCP servers overlay |
+| `?` | Show key bindings help |
 
 ### Multi-Turn Conversation
 
@@ -869,7 +878,7 @@ jobs:
 
 ```dockerfile
 FROM ubuntu:latest
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 COPY alchemy /usr/local/bin/alchemy
 COPY scripts/check /opt/resource/check
 COPY scripts/in /opt/resource/in

@@ -10,12 +10,20 @@ use crate::tui::TuiApp;
 use crate::tui::theme::ThemePalette;
 
 pub fn draw(f: &mut Frame, app: &mut TuiApp) {
+    // Input area height grows with the number of lines in the buffer (max 4).
+    let input_height = if app.agent_busy {
+        1
+    } else {
+        let lines = app.input.lines().count().max(1) as u16;
+        lines.min(4)
+    };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),   // Status bar
-            Constraint::Min(5),      // Main area
-            Constraint::Length(1),   // Input prompt
+            Constraint::Length(1),             // Status bar
+            Constraint::Min(5),                // Main area
+            Constraint::Length(input_height),  // Input prompt
         ])
         .split(f.area());
 
@@ -375,33 +383,45 @@ fn draw_files_panel(f: &mut Frame, app: &mut TuiApp, area: Rect) {
 fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let t = app.theme();
 
-    let line = if app.agent_busy {
+    if app.agent_busy {
         let spinner = crate::tui::widgets::spinner_frame(app.tick);
-        Line::from(vec![
-            Span::styled(
-                format!("{} Working…  Ctrl+C to interrupt", spinner),
-                Style::default().fg(t.input_busy_fg).add_modifier(Modifier::BOLD),
-            ),
-        ])
-    } else {
-        let cursor = app.input_cursor.min(app.input.len());
-        let before = &app.input[..cursor];
+        let p = Paragraph::new(Line::from(vec![Span::styled(
+            format!("{} Working…  Ctrl+C to interrupt", spinner),
+            Style::default().fg(t.input_busy_fg).add_modifier(Modifier::BOLD),
+        )]))
+        .style(Style::default().bg(t.panel_bg));
+        f.render_widget(p, area);
+        return;
+    }
 
-        // Place the terminal cursor: "> "(2) + display-width of text before cursor.
-        let before_cols: u16 = before.width() as u16;
-        let cx = area.x + 2 + before_cols;
-        let cy = area.y;
-        if cx < area.x + area.width {
-            f.set_cursor_position((cx, cy));
-        }
+    let cursor = app.input_cursor.min(app.input.len());
+    let (cur_row, cur_col) = crate::tui::input::cursor_visual_pos(&app.input, cursor);
+    // First line has "> " (2 cols) prefix; subsequent lines have "  " indent.
+    let cx = area.x + 2 + cur_col;
+    let cy = area.y + cur_row;
+    if cx < area.x + area.width && cy < area.y + area.height {
+        f.set_cursor_position((cx, cy));
+    }
 
-        Line::from(vec![
-            Span::styled("> ", Style::default().fg(t.input_fg).add_modifier(Modifier::BOLD)),
-            Span::styled(app.input.clone(), Style::default().fg(t.input_fg)),
-        ])
-    };
+    let display_lines: Vec<Line> = app.input
+        .split('\n')
+        .enumerate()
+        .map(|(i, line)| {
+            if i == 0 {
+                Line::from(vec![
+                    Span::styled("> ", Style::default().fg(t.input_fg).add_modifier(Modifier::BOLD)),
+                    Span::styled(line.to_string(), Style::default().fg(t.input_fg)),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled("  ", Style::default().fg(t.input_fg)),
+                    Span::styled(line.to_string(), Style::default().fg(t.input_fg)),
+                ])
+            }
+        })
+        .collect();
 
-    let p = Paragraph::new(line)
+    let p = Paragraph::new(display_lines)
         .style(Style::default().bg(t.panel_bg));
     f.render_widget(p, area);
 }
@@ -491,6 +511,7 @@ fn draw_help_overlay(
         section!("Messaging"),
         div(),
         kline!("Enter",         "Send message"),
+        kline!("Shift+Enter",   "Insert newline (multiline input)"),
         kline!("Esc",           "Clear input / exit history"),
         Line::from(""),
         section!("Appearance"),

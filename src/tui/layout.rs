@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
@@ -13,7 +13,7 @@ pub fn draw(f: &mut Frame, app: &mut TuiApp) {
         .constraints([
             Constraint::Length(1),   // Status bar
             Constraint::Min(5),      // Main area
-            Constraint::Length(4),   // Input + hint bar
+            Constraint::Length(3),   // Input
         ])
         .split(f.area());
 
@@ -210,13 +210,6 @@ fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
 }
 
 fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
-    // Split into: input box (top 3) + hint bar (bottom 1).
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Length(1)])
-        .split(area);
-
-    // --- Input box ---
     let (input_widget, title_style, border_color) = if app.agent_busy {
         let spinner = crate::tui::widgets::spinner_frame(app.tick);
         let content = format!("{} Working…  Ctrl+C to interrupt", spinner);
@@ -226,7 +219,6 @@ fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         ));
         (p, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD), Color::Yellow)
     } else {
-        // Render cursor: split input at input_cursor into before/cursor/after.
         let cursor = app.input_cursor.min(app.input.len());
         let before = &app.input[..cursor];
         let (cursor_char, after) = if cursor < app.input.len() {
@@ -237,7 +229,6 @@ fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
             };
             (&app.input[cursor..next], &app.input[next..])
         } else {
-            // Cursor is at the end — use a block character.
             ("█", "")
         };
 
@@ -260,17 +251,7 @@ fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
             .title_style(title_style)
             .border_style(Style::default().fg(border_color)),
     );
-    f.render_widget(p, chunks[0]);
-
-    // --- Hint bar ---
-    let hint = if app.agent_busy {
-        "  Ctrl+C: cancel  │  Ctrl+D: exit"
-    } else {
-        "  Enter: send  │  Ctrl+Enter: newline  │  ↑/↓: history  │  Tab: panel  │  Ctrl+S: save  │  Ctrl+L: clear  │  ?: help"
-    };
-    let hint_p = Paragraph::new(Span::styled(hint, Style::default().fg(Color::DarkGray)))
-        .alignment(Alignment::Left);
-    f.render_widget(hint_p, chunks[1]);
+    f.render_widget(p, area);
 }
 
 /// Returns a centered `Rect` of the given percentage width/height within `r`.
@@ -348,7 +329,6 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         section!("Messaging"),
         divider.clone(),
         kline!("Enter", "Send message"),
-        kline!("Ctrl+Enter", "Insert newline at cursor"),
         kline!("Esc", "Clear input / exit history"),
         Line::from(""),
         section!("Session"),

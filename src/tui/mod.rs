@@ -407,12 +407,6 @@ impl TuiApp {
                 }
             }
 
-            // ── Newline in input ─────────────────────────────────────────────
-            (KeyModifiers::CONTROL, KeyCode::Enter) => {
-                self.input.insert(self.input_cursor, '\n');
-                self.input_cursor += 1; // '\n' is always 1 byte
-            }
-
             // ── Esc: clear input ─────────────────────────────────────────────
             (KeyModifiers::NONE, KeyCode::Esc) => {
                 self.input.clear();

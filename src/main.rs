@@ -309,7 +309,10 @@ async fn run_pipe(cli: Cli) -> Result<i32> {
         let top_k: usize = std::env::var("ALCHEMY_RAG_TOP_K").ok().and_then(|s| s.parse().ok()).unwrap_or(5);
 
         let embed_prov = providers::create_provider(&embed_provider, api_key.as_deref(), base_url.as_deref())?;
-        let dimensions = embed_prov.embed_dimensions();
+        let dimensions = std::env::var("ALCHEMY_RAG_DIMENSIONS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or_else(|| embed_prov.embed_dimensions());
 
         let embed_api_key = api_key.clone();
         let embed_base_url = std::env::var("ALCHEMY_RAG_EMBED_BASE_URL").ok();
@@ -548,7 +551,10 @@ async fn run_rag(action: RagAction) -> Result<()> {
     let top_k: usize = std::env::var("ALCHEMY_RAG_TOP_K").ok().and_then(|s| s.parse().ok()).unwrap_or(5);
 
     let embed_prov = providers::create_provider(&embed_provider, api_key.as_deref(), base_url.as_deref())?;
-    let dimensions = embed_prov.embed_dimensions();
+    let dimensions = std::env::var("ALCHEMY_RAG_DIMENSIONS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or_else(|| embed_prov.embed_dimensions());
 
     let embed_api_key = api_key.clone();
     let embed_base_url = std::env::var("ALCHEMY_RAG_EMBED_BASE_URL").ok();

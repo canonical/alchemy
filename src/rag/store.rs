@@ -41,6 +41,14 @@ impl VectorStore {
         // Register sqlite-vec before opening any connection.
         register_sqlite_vec();
 
+        if dimensions == 0 {
+            anyhow::bail!(
+                "RAG embedding dimensions must be > 0. \
+                 Set ALCHEMY_RAG_DIMENSIONS to the output dimension of your embedding model \
+                 (e.g. 1536 for OpenAI text-embedding-3-small, 768 for Gemini/Ollama)."
+            );
+        }
+
         let conn = Connection::open(&path)?;
 
         // Check whether the vec0 virtual table already exists.

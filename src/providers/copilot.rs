@@ -94,6 +94,9 @@ impl Provider for CopilotProvider {
         "gpt-5-mini"
     }
 
+    fn embed_dimensions(&self) -> usize {
+        1536 // text-embedding-3-small via Copilot embeddings endpoint
+    }
     async fn chat_streaming(
         &self,
         request: LlmRequest,

@@ -164,8 +164,10 @@ fn draw_conversation(f: &mut Frame, app: &mut TuiApp, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .title("💬 Conversation")
-                .border_style(border_style),
+                .border_style(border_style)
+                .style(Style::default().bg(t.panel_bg)),
         )
+        .style(Style::default().bg(t.panel_bg))
         .wrap(Wrap { trim: false })
         .scroll((scroll, 0));
     f.render_widget(p, area);
@@ -211,7 +213,9 @@ fn draw_tools_panel(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     };
     let max = (tool_lines.len() as u16).saturating_sub(area.height.saturating_sub(2));
     let tools = Paragraph::new(tool_lines)
-        .block(Block::default().borders(Borders::ALL).title("🔧 Tools").border_style(border))
+        .block(Block::default().borders(Borders::ALL).title("🔧 Tools")
+            .border_style(border).style(Style::default().bg(t.panel_bg)))
+        .style(Style::default().bg(t.panel_bg))
         .scroll(((app.tools_scroll as u16).min(max), 0));
     f.render_widget(tools, area);
 }
@@ -239,7 +243,9 @@ fn draw_files_panel(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     };
     let max = (file_lines.len() as u16).saturating_sub(area.height.saturating_sub(2));
     let files = Paragraph::new(file_lines)
-        .block(Block::default().borders(Borders::ALL).title("📁 Files").border_style(border))
+        .block(Block::default().borders(Borders::ALL).title("📁 Files")
+            .border_style(border).style(Style::default().bg(t.panel_bg)))
+        .style(Style::default().bg(t.panel_bg))
         .scroll(((app.files_scroll as u16).min(max), 0));
     f.render_widget(files, area);
 }
@@ -286,8 +292,9 @@ fn draw_input(f: &mut Frame, app: &mut TuiApp, area: Rect) {
             .borders(Borders::ALL)
             .title("Input")
             .title_style(title_style)
-            .border_style(Style::default().fg(border_color)),
-    );
+            .border_style(Style::default().fg(border_color))
+            .style(Style::default().bg(t.panel_bg)),
+    ).style(Style::default().bg(t.panel_bg));
     f.render_widget(p, area);
 }
 
@@ -416,8 +423,10 @@ fn draw_help_overlay(
                 .borders(Borders::ALL)
                 .title(title)
                 .title_style(header)
-                .border_style(Style::default().fg(t.help_border)),
+                .border_style(Style::default().fg(t.help_border))
+                .style(Style::default().bg(t.panel_bg)),
         )
+        .style(Style::default().bg(t.panel_bg))
         .scroll((clamped_scroll, 0));
 
     f.render_widget(p, popup_area);
@@ -459,8 +468,10 @@ fn draw_info_overlay(
                 .borders(Borders::ALL)
                 .title(display_title)
                 .title_style(header_style)
-                .border_style(Style::default().fg(t.help_border)),
+                .border_style(Style::default().fg(t.help_border))
+                .style(Style::default().bg(t.panel_bg)),
         )
+        .style(Style::default().bg(t.panel_bg))
         .scroll((clamped_scroll, 0));
     f.render_widget(p, popup_area);
 }

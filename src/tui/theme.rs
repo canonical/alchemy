@@ -6,6 +6,9 @@ use ratatui::style::Color;
 #[derive(Clone, Copy)]
 pub struct ThemePalette {
     pub name: &'static str,
+    /// Background color for all panels and the input box.
+    /// Use `Color::Reset` on dark themes to inherit the terminal background.
+    pub panel_bg: Color,
     // Status bar
     pub status_bg: Color,
     pub status_fg: Color,
@@ -50,6 +53,7 @@ pub struct ThemePalette {
 
 const DARK: ThemePalette = ThemePalette {
     name: "dark",
+    panel_bg: Color::Reset,
     status_bg: Color::Blue,
     status_fg: Color::White,
     user_fg: Color::Cyan,
@@ -84,41 +88,43 @@ const DARK: ThemePalette = ThemePalette {
 
 const LIGHT: ThemePalette = ThemePalette {
     name: "light",
+    panel_bg: Color::Rgb(245, 245, 245),   // near-white fill for all panels
     status_bg: Color::Rgb(70, 130, 180),   // steel-blue
     status_fg: Color::White,
-    user_fg: Color::Rgb(0, 90, 160),       // dark blue
-    assistant_fg: Color::Rgb(0, 120, 60),  // dark green
+    user_fg: Color::Rgb(0, 80, 160),       // dark blue
+    assistant_fg: Color::Rgb(0, 110, 50),  // dark green
     focused_border: Color::Rgb(200, 120, 0), // amber
     normal_border: Color::Rgb(150, 150, 150),
-    tool_success: Color::Rgb(0, 140, 60),
+    tool_success: Color::Rgb(0, 130, 50),
     tool_error: Color::Rgb(200, 0, 0),
     tool_spinner: Color::Rgb(180, 100, 0),
     file_new: Color::Rgb(180, 100, 0),
-    file_mid: Color::Rgb(120, 120, 0),
-    file_old: Color::Rgb(0, 140, 60),
+    file_mid: Color::Rgb(100, 100, 0),
+    file_old: Color::Rgb(0, 130, 50),
     input_fg: Color::Rgb(20, 20, 20),
     input_cursor_bg: Color::Rgb(20, 20, 20),
-    input_cursor_fg: Color::White,
+    input_cursor_fg: Color::Rgb(245, 245, 245),
     input_busy_fg: Color::Rgb(180, 100, 0),
     help_border: Color::Rgb(200, 120, 0),
-    help_header: Color::Rgb(200, 120, 0),
-    help_key: Color::Rgb(0, 90, 160),
-    help_desc: Color::Rgb(20, 20, 20),
-    help_sep: Color::Rgb(150, 150, 150),
+    help_header: Color::Rgb(160, 80, 0),
+    help_key: Color::Rgb(0, 80, 160),
+    help_desc: Color::Rgb(30, 30, 30),
+    help_sep: Color::Rgb(140, 140, 140),
     md_text: Color::Rgb(20, 20, 20),
-    md_code_fg: Color::Rgb(0, 90, 160),
-    md_code_bg: Color::Rgb(230, 230, 230),
-    md_quote: Color::Rgb(120, 120, 120),
-    md_heading_h1: Color::Rgb(140, 0, 140),
-    md_heading_h2: Color::Rgb(140, 0, 140),
-    md_heading_h3: Color::Rgb(160, 40, 160),
+    md_code_fg: Color::Rgb(0, 80, 160),
+    md_code_bg: Color::Rgb(220, 220, 220),
+    md_quote: Color::Rgb(100, 100, 100),
+    md_heading_h1: Color::Rgb(130, 0, 130),
+    md_heading_h2: Color::Rgb(130, 0, 130),
+    md_heading_h3: Color::Rgb(150, 30, 150),
     md_separator: Color::Rgb(150, 150, 150),
-    md_list: Color::Rgb(120, 120, 120),
+    md_list: Color::Rgb(100, 100, 100),
 };
 
 // Dracula: https://draculatheme.com/contribute#color-palette
 const DRACULA: ThemePalette = ThemePalette {
     name: "dracula",
+    panel_bg: Color::Rgb(40, 42, 54),      // Background
     status_bg: Color::Rgb(68, 71, 90),    // Current Line
     status_fg: Color::Rgb(248, 248, 242), // Foreground
     user_fg: Color::Rgb(139, 233, 253),   // Cyan
@@ -154,6 +160,7 @@ const DRACULA: ThemePalette = ThemePalette {
 // Solarized Dark: https://ethanschoonover.com/solarized/
 const SOLARIZED: ThemePalette = ThemePalette {
     name: "solarized",
+    panel_bg: Color::Rgb(0, 43, 54),       // base03
     status_bg: Color::Rgb(0, 43, 54),     // base03
     status_fg: Color::Rgb(131, 148, 150), // base0
     user_fg: Color::Rgb(38, 139, 210),    // blue

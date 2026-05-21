@@ -62,7 +62,7 @@ fn draw_status_bar(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     );
     let right = "? help ";
 
-    let pad = (area.width as usize).saturating_sub(left.len() + right.len());
+    let pad = (area.width as usize).saturating_sub(left.width() + right.width());
     let full = format!("{}{}{}", left, " ".repeat(pad), right);
 
     let p = Paragraph::new(Line::from(vec![

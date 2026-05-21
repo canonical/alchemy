@@ -205,20 +205,49 @@ fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
 fn draw_tools_panel(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let t = app.theme();
     let spinner = crate::tui::widgets::spinner_frame(app.tick);
-    let tool_lines: Vec<Line> = app.tools_log.iter().map(|entry| {
+    let current_turn = app.turn_count;
+    let mut tool_lines: Vec<Line> = Vec::new();
+    let mut last_turn = u32::MAX;
+
+    for entry in &app.tools_log {
+        // Emit a turn-separator whenever the turn changes.
+        if entry.turn != last_turn {
+            last_turn = entry.turn;
+            let is_current = entry.turn == current_turn;
+            let sep_style = if is_current {
+                Style::default().fg(t.focused_border).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(t.normal_border)
+            };
+            tool_lines.push(Line::from(Span::styled(
+                format!("#{} {}", entry.turn, entry.time),
+                sep_style,
+            )));
+        }
+        let is_current = entry.turn == current_turn;
         if entry.status == "⏳" {
-            Line::from(Span::styled(
-                format!("{} {}", spinner, entry.name),
+            tool_lines.push(Line::from(Span::styled(
+                format!("  {} {}", spinner, entry.name),
                 Style::default().fg(t.tool_spinner),
-            ))
+            )));
         } else {
             let status_color = if entry.success { t.tool_success } else { t.tool_error };
-            Line::from(vec![
+            let name_style = if is_current {
+                Style::default()
+            } else {
+                Style::default().fg(t.normal_border)
+            };
+            tool_lines.push(Line::from(vec![
+                Span::raw("  "),
                 Span::styled(entry.status.clone(), Style::default().fg(status_color)),
-                Span::raw(format!(" {} ({}ms)", entry.name, entry.duration_ms)),
-            ])
+                Span::styled(
+                    format!(" {} ({}ms)", entry.name, entry.duration_ms),
+                    name_style,
+                ),
+            ]));
         }
-    }).collect();
+    }
+
     let border = if app.focused_panel == 1 {
         Style::default().fg(t.focused_border)
     } else {
@@ -236,19 +265,44 @@ fn draw_tools_panel(f: &mut Frame, app: &mut TuiApp, area: Rect) {
 fn draw_files_panel(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let t = app.theme();
     const FADE_TICKS: usize = 20;
-    let file_lines: Vec<Line> = app.files_log.iter().map(|fl| {
-        let age = app.tick.saturating_sub(fl.added_tick);
-        let style = if age < FADE_TICKS / 3 {
-            Style::default().fg(t.file_new).add_modifier(Modifier::BOLD)
-        } else if age < (2 * FADE_TICKS) / 3 {
-            Style::default().fg(t.file_mid)
-        } else if age < FADE_TICKS {
-            Style::default().fg(t.file_old)
+    let current_turn = app.turn_count;
+    let mut file_lines: Vec<Line> = Vec::new();
+    let mut last_turn = u32::MAX;
+
+    for fl in &app.files_log {
+        // Emit a turn-separator whenever the turn changes.
+        if fl.turn != last_turn {
+            last_turn = fl.turn;
+            let is_current = fl.turn == current_turn;
+            let sep_style = if is_current {
+                Style::default().fg(t.focused_border).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(t.normal_border)
+            };
+            file_lines.push(Line::from(Span::styled(
+                format!("#{} {}", fl.turn, fl.time),
+                sep_style,
+            )));
+        }
+        let is_current = fl.turn == current_turn;
+        let style = if is_current {
+            let age = app.tick.saturating_sub(fl.added_tick);
+            if age < FADE_TICKS / 3 {
+                Style::default().fg(t.file_new).add_modifier(Modifier::BOLD)
+            } else if age < (2 * FADE_TICKS) / 3 {
+                Style::default().fg(t.file_mid)
+            } else {
+                Style::default().fg(t.file_old)
+            }
         } else {
-            Style::default()
+            Style::default().fg(t.normal_border)
         };
-        Line::from(Span::styled(format!("{} {}", fl.operation, fl.path), style))
-    }).collect();
+        file_lines.push(Line::from(Span::styled(
+            format!("  {} {}", fl.operation, fl.path),
+            style,
+        )));
+    }
+
     let border = if app.focused_panel == 2 {
         Style::default().fg(t.focused_border)
     } else {

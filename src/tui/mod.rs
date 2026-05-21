@@ -94,6 +94,8 @@ pub struct TuiApp {
     pub tick: usize,
     turn_baseline_steps: u32,
     turn_baseline_tokens: u64,
+    /// Number of user messages sent in this session (used to tag tool/file log entries).
+    turn_count: u32,
     abort_handle: Option<tokio::task::AbortHandle>,
     /// Panel visibility toggles (Ctrl+Shift+T / Ctrl+Shift+F).
     pub show_tools: bool,
@@ -133,6 +135,10 @@ pub struct ToolLogEntry {
     pub status: String,
     pub duration_ms: u64,
     pub success: bool,
+    /// Conversation turn this tool call belongs to (1-based).
+    pub turn: u32,
+    /// Wall-clock time when the tool was invoked, formatted `HH:MM:SS`.
+    pub time: String,
 }
 
 #[derive(Clone)]
@@ -141,6 +147,10 @@ pub struct FileLogEntry {
     pub operation: char,
     /// Tick at which this entry was appended, used for the fade-in animation.
     pub added_tick: usize,
+    /// Conversation turn this file access belongs to (1-based).
+    pub turn: u32,
+    /// Wall-clock time when the file was accessed, formatted `HH:MM:SS`.
+    pub time: String,
 }
 
 impl TuiApp {
@@ -175,6 +185,7 @@ impl TuiApp {
             tick: 0,
             turn_baseline_steps: 0,
             turn_baseline_tokens: 0,
+            turn_count: 0,
             abort_handle: None,
             show_tools,
             show_files,
@@ -255,11 +266,16 @@ impl TuiApp {
                 while let Ok(event) = rx.try_recv() {
                     match event {
                         ToolEvent::Started { name } => {
+                            let time = chrono::Local::now()
+                                .format("%H:%M:%S")
+                                .to_string();
                             self.tools_log.push(ToolLogEntry {
                                 name,
                                 status: "⏳".into(),
                                 duration_ms: 0,
                                 success: true,
+                                turn: self.turn_count,
+                                time,
                             });
                         }
                         ToolEvent::Finished { name, duration_ms, success } => {
@@ -285,7 +301,14 @@ impl TuiApp {
                         FileEvent::Read { path } => (path, 'R'),
                         FileEvent::Write { path } => (path, 'W'),
                     };
-                    self.files_log.push(FileLogEntry { path, operation: op, added_tick: self.tick });
+                    let time = chrono::Local::now().format("%H:%M:%S").to_string();
+                    self.files_log.push(FileLogEntry {
+                        path,
+                        operation: op,
+                        added_tick: self.tick,
+                        turn: self.turn_count,
+                        time,
+                    });
                 }
             }
 
@@ -535,6 +558,9 @@ impl TuiApp {
             // ── Session management ───────────────────────────────────────────
             (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
                 self.messages.clear();
+                self.tools_log.clear();
+                self.files_log.clear();
+                self.turn_count = 0;
             }
             (KeyModifiers::ALT, KeyCode::Char('c')) => {
                 self.theme_idx = (self.theme_idx + 1) % theme::THEMES.len();
@@ -563,7 +589,7 @@ impl TuiApp {
                     self.messages
                         .push(TuiMessage { role: "user".into(), content: user_msg.clone() });
                     self.conv_follow = true;
-                    self.tools_log.clear();
+                    self.turn_count += 1;
                     self.agent_busy = true;
 
                     let history = self.conversation_history.clone();

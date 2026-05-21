@@ -484,7 +484,8 @@ async fn run_tui(
         context_window: std::env::var("ALCHEMY_CONTEXT_WINDOW").ok().and_then(|s| s.parse().ok()).unwrap_or(128000),
     };
 
-    let mut app = tui::TuiApp::new(session, sess_dir, model);
+    let prompt_history_path = dirs_path("prompt_history");
+    let mut app = tui::TuiApp::new(session, sess_dir, prompt_history_path, model);
     app.set_skills_info(skills_display);
     app.set_mcp_info(mcp_display);
     app.run(provider, config, registry).await?;

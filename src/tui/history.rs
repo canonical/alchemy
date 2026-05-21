@@ -39,6 +39,56 @@ pub async fn save_messages(path: &str, messages: &[TuiMessage]) -> Result<()> {
     Ok(())
 }
 
+/// Load the global prompt history from `path`.
+/// Returns up to `limit` most-recent entries, deduplicated so no two
+/// adjacent entries are identical.
+pub async fn load_prompt_history(path: &str, limit: usize) -> Vec<String> {
+    let Ok(content) = tokio::fs::read_to_string(path).await else {
+        return Vec::new();
+    };
+    let mut entries: Vec<String> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.to_string())
+        .collect();
+    // Keep only the tail we care about before dedup.
+    if entries.len() > limit * 2 {
+        entries = entries.split_off(entries.len() - limit * 2);
+    }
+    // Deduplicate adjacent identical entries.
+    entries.dedup();
+    if entries.len() > limit {
+        entries = entries.split_off(entries.len() - limit);
+    }
+    entries
+}
+
+/// Append a single prompt to the history file.
+/// Skips writing if `entry` is empty or matches the last line already
+/// in the file (avoids consecutive duplicates on disk).
+pub async fn append_prompt_history(path: &str, entry: &str) {
+    if entry.trim().is_empty() {
+        return;
+    }
+    // Avoid writing a duplicate of the last recorded line.
+    if let Ok(content) = tokio::fs::read_to_string(path).await {
+        if content.lines().next_back() == Some(entry) {
+            return;
+        }
+    }
+    let line = format!("{}\n", entry);
+    // Append-open; create the file if it doesn't exist.
+    use tokio::io::AsyncWriteExt;
+    if let Ok(mut f) = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .await
+    {
+        let _ = f.write_all(line.as_bytes()).await;
+    }
+}
+
 pub async fn load_session_metadata(path: &str) -> Result<SessionMetadata> {
     let content = tokio::fs::read_to_string(path).await?;
     Ok(serde_json::from_str(&content)?)

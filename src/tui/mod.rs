@@ -67,6 +67,8 @@ pub struct McpEntry {
 pub struct TuiApp {
     pub session_name: String,
     pub session_dir: String,
+    /// Path to `~/.alchemy/prompt_history`, shared across all sessions.
+    prompt_history_path: String,
     pub messages: Vec<TuiMessage>,
     pub input: String,
     /// Byte offset of the cursor within `input`.
@@ -154,11 +156,12 @@ pub struct FileLogEntry {
 }
 
 impl TuiApp {
-    pub fn new(session_name: String, session_dir: String, model_name: String) -> Self {
+    pub fn new(session_name: String, session_dir: String, prompt_history_path: String, model_name: String) -> Self {
         let (show_tools, show_files) = theme::load_panels();
         Self {
             session_name,
             session_dir,
+            prompt_history_path,
             messages: Vec::new(),
             input: String::new(),
             input_cursor: 0,
@@ -240,6 +243,9 @@ impl TuiApp {
         {
             self.messages = msgs;
         }
+
+        // Load global prompt history (shared across all sessions).
+        self.prompt_history = history::load_prompt_history(&self.prompt_history_path, 1000).await;
 
         // Write or update session.json metadata.
         let session_json_path = format!("{}/session.json", history_path);
@@ -585,6 +591,13 @@ impl TuiApp {
                     self.history_draft.clear();
                     self.input.clear();
                     self.input_cursor = 0;
+
+                    // Persist to global prompt history file (fire-and-forget).
+                    let ph_path = self.prompt_history_path.clone();
+                    let ph_entry = user_msg.clone();
+                    tokio::spawn(async move {
+                        history::append_prompt_history(&ph_path, &ph_entry).await;
+                    });
 
                     self.messages
                         .push(TuiMessage { role: "user".into(), content: user_msg.clone() });

@@ -202,6 +202,20 @@ fn draw_side_panels(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     }
 }
 
+/// Parse a tool name into (badge_label, badge_color, display_name).
+/// MCP tools are prefixed `mcp_<server>_…`, skill tools `skill_<name>_…`.
+fn parse_tool_name(name: &str, t: &'static crate::tui::theme::ThemePalette)
+    -> (&'static str, ratatui::style::Color, String)
+{
+    if let Some(rest) = name.strip_prefix("mcp_") {
+        ("[M]", t.focused_border, rest.to_string())
+    } else if let Some(rest) = name.strip_prefix("skill_") {
+        ("[S]", t.tool_success, rest.to_string())
+    } else {
+        ("", t.assistant_fg, name.to_string())
+    }
+}
+
 fn draw_tools_panel(f: &mut Frame, app: &mut TuiApp, area: Rect) {
     let t = app.theme();
     let spinner = crate::tui::widgets::spinner_frame(app.tick);
@@ -225,26 +239,52 @@ fn draw_tools_panel(f: &mut Frame, app: &mut TuiApp, area: Rect) {
             )));
         }
         let is_current = entry.turn == current_turn;
+        let (badge, badge_color, display_name) = parse_tool_name(&entry.name, t);
+        let dim = !is_current;
         if entry.status == "⏳" {
-            tool_lines.push(Line::from(Span::styled(
-                format!("  {} {}", spinner, entry.name),
+            let mut spans = vec![Span::raw("  ")];
+            if !badge.is_empty() {
+                let bc = if dim { t.normal_border } else { badge_color };
+                spans.push(Span::styled(
+                    format!("{} ", badge),
+                    Style::default().fg(bc).add_modifier(Modifier::BOLD),
+                ));
+            }
+            spans.push(Span::styled(
+                format!("{} {}", spinner, display_name),
                 Style::default().fg(t.tool_spinner),
-            )));
+            ));
+            tool_lines.push(Line::from(spans));
         } else {
-            let status_color = if entry.success { t.tool_success } else { t.tool_error };
-            let name_style = if is_current {
-                Style::default()
+            let status_color = if dim {
+                t.normal_border
+            } else if entry.success {
+                t.tool_success
             } else {
-                Style::default().fg(t.normal_border)
+                t.tool_error
             };
-            tool_lines.push(Line::from(vec![
+            let name_style = if dim {
+                Style::default().fg(t.normal_border)
+            } else {
+                Style::default()
+            };
+            let mut spans = vec![
                 Span::raw("  "),
                 Span::styled(entry.status.clone(), Style::default().fg(status_color)),
-                Span::styled(
-                    format!(" {} ({}ms)", entry.name, entry.duration_ms),
-                    name_style,
-                ),
-            ]));
+                Span::raw(" "),
+            ];
+            if !badge.is_empty() {
+                let bc = if dim { t.normal_border } else { badge_color };
+                spans.push(Span::styled(
+                    format!("{} ", badge),
+                    Style::default().fg(bc).add_modifier(Modifier::BOLD),
+                ));
+            }
+            spans.push(Span::styled(
+                format!("{} ({}ms)", display_name, entry.duration_ms),
+                name_style,
+            ));
+            tool_lines.push(Line::from(spans));
         }
     }
 

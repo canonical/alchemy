@@ -11,6 +11,16 @@ use tokio::sync::{oneshot, Mutex};
 
 type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<std::result::Result<Value, String>>>>>;
 
+/// Get the shell command for the current platform.
+/// Returns (shell_name, arg_flag) tuple.
+fn get_shell() -> (&'static str, &'static str) {
+    if std::env::consts::OS == "windows" {
+        ("cmd", "/C")
+    } else {
+        ("sh", "-c")
+    }
+}
+
 #[derive(Clone)]
 pub struct McpTool {
     pub server_name: String,
@@ -196,18 +206,9 @@ async fn connect_stdio(config: &McpServerConfig) -> Result<McpClient> {
         .as_deref()
         .ok_or_else(|| anyhow!("stdio MCP server '{}' missing 'cmd'", config.name))?;
 
-    #[cfg(unix)]
-    let mut command = {
-        let mut c = tokio::process::Command::new("sh");
-        c.args(["-c", cmd_str]);
-        c
-    };
-    #[cfg(windows)]
-    let mut command = {
-        let mut c = tokio::process::Command::new("cmd");
-        c.args(["/C", cmd_str]);
-        c
-    };
+    let (shell, flag) = get_shell();
+    let mut command = tokio::process::Command::new(shell);
+    command.args([flag, cmd_str]);
 
     command
         .stdin(std::process::Stdio::piped())

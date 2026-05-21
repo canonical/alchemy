@@ -4,6 +4,16 @@ use crate::types::{ToolDefinition, FunctionDefinition};
 
 const MAX_READ_BYTES: usize = 32 * 1024;
 
+/// Get the shell command for the current platform.
+/// Returns (shell_name, arg_flag) tuple.
+fn get_shell() -> (&'static str, &'static str) {
+    if std::env::consts::OS == "windows" {
+        ("cmd", "/C")
+    } else {
+        ("sh", "-c")
+    }
+}
+
 pub fn is_builtin(name: &str) -> bool {
     matches!(name, "read_file" | "write_file" | "list_dir" | "execute_cmd" | "fetch_url")
 }
@@ -162,18 +172,9 @@ async fn execute_cmd(args: &serde_json::Value, default_timeout: u64) -> Result<S
     let cwd = args["cwd"].as_str();
     let timeout = args["timeout_secs"].as_u64().unwrap_or(default_timeout);
 
-    #[cfg(unix)]
-    let mut command = {
-        let mut c = tokio::process::Command::new("sh");
-        c.args(["-c", cmd]);
-        c
-    };
-    #[cfg(windows)]
-    let mut command = {
-        let mut c = tokio::process::Command::new("cmd");
-        c.args(["/C", cmd]);
-        c
-    };
+    let (shell, flag) = get_shell();
+    let mut command = tokio::process::Command::new(shell);
+    command.args([flag, cmd]);
 
     if let Some(dir) = cwd {
         command.current_dir(dir);

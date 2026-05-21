@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use rusqlite::Connection;
+use std::ffi::c_char;
 use std::sync::{Mutex, Once};
 
 /// A single result from a vector similarity search.
@@ -49,7 +50,7 @@ fn register_sqlite_vec() {
                 *const (),
                 unsafe extern "C" fn(
                     *mut rusqlite::ffi::sqlite3,
-                    *mut *mut i8,
+                    *mut *mut c_char,
                     *const rusqlite::ffi::sqlite3_api_routines,
                 ) -> i32,
             >(sqlite_vec::sqlite3_vec_init as *const ())));

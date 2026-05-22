@@ -6,7 +6,7 @@ See [SPEC.md](SPEC.md) for the full design specification. This README documents 
 
 ## Install
 
-Install the latest published binary release:
+### Quick install (all platforms)
 
 ```bash
 # macOS / Linux
@@ -16,6 +16,57 @@ curl -fsSL https://raw.githubusercontent.com/canonical/alchemy/refs/heads/main/i
 ```powershell
 # Windows (PowerShell)
 powershell -c "irm https://raw.githubusercontent.com/canonical/alchemy/refs/heads/main/install.ps1 | iex"
+```
+
+### Package managers
+
+#### macOS
+```bash
+# Using Homebrew (when tap is available)
+brew install canonical/alchemy/alchemy
+
+# Or direct .pkg installer
+# Download from: https://github.com/canonical/alchemy/releases
+```
+
+#### Debian/Ubuntu
+```bash
+# Using apt (when PPA is available)
+apt update && apt install alchemy
+
+# Or install .deb directly
+wget https://github.com/canonical/alchemy/releases/download/latest/alchemy-latest_amd64.deb
+sudo dpkg -i alchemy-latest_amd64.deb
+```
+
+#### Fedora/RHEL/CentOS/Rocky
+```bash
+# Using dnf (when Copr repo is available)
+dnf install alchemy
+
+# Or install .rpm directly
+sudo rpm -ivh https://github.com/canonical/alchemy/releases/download/latest/alchemy-latest.x86_64.rpm
+```
+
+#### Arch Linux
+```bash
+# Using AUR (when available)
+yay -S alchemy
+```
+
+### Container
+
+Run TUI directly from the published container image:
+
+```bash
+# OpenRouter
+docker run --env ALCHEMY_PROVIDER=openrouter --env ALCHEMY_API_KEY=sk-or-v1-... --env ALCHEMY_MODEL=google/gemma-4-31b-it --rm -it ghcr.io/canonical/alchemy:latest tui
+
+# GitHub Copilot
+docker run --env ALCHEMY_PROVIDER=github-copilot --env ALCHEMY_API_KEY=ghu_... --env ALCHEMY_MODEL=claude-sonnet-4.6 --rm -it ghcr.io/canonical/alchemy:latest tui
+
+# Gemini
+docker run --env ALCHEMY_PROVIDER=gemini --env ALCHEMY_API_KEY=AI... --env ALCHEMY_MODEL=gemini-3.1-flash-lite-preview --rm -it ghcr.io/canonical/alchemy:latest tui
 ```
 
 ## Status
@@ -59,19 +110,6 @@ cargo test 2>&1 | alchemy "Analyze the failures and suggest fixes"
 
 # Interactive
 alchemy tui
-```
-
-Run TUI directly from the published container image:
-
-```bash
-# OpenRouter
-docker run --env ALCHEMY_PROVIDER=openrouter --env ALCHEMY_API_KEY=sk-or-v1-... --env ALCHEMY_MODEL=google/gemma-4-31b-it --rm -it ghcr.io/canonical/alchemy:latest tui
-
-# GitHub Copilot
-docker run --env ALCHEMY_PROVIDER=github-copilot --env ALCHEMY_API_KEY=ghu_... --env ALCHEMY_MODEL=claude-sonnet-4.6 --rm -it ghcr.io/canonical/alchemy:latest tui
-
-# Gemini
-docker run --env ALCHEMY_PROVIDER=gemini --env ALCHEMY_API_KEY=AI... --env ALCHEMY_MODEL=gemini-3.1-flash-lite-preview --rm -it ghcr.io/canonical/alchemy:latest tui
 ```
 
 ## Providers

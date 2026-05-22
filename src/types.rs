@@ -290,3 +290,136 @@ pub struct AgentResult {
     pub error: Option<String>,
     pub total_tokens: u64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── ThinkingLevel::cycle ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_cycle_full_sequence() {
+        let levels = [
+            ThinkingLevel::Off,
+            ThinkingLevel::Low,
+            ThinkingLevel::Medium,
+            ThinkingLevel::High,
+            ThinkingLevel::XHigh,
+        ];
+        for window in levels.windows(2) {
+            assert_eq!(window[0].cycle(), window[1],
+                "{:?}.cycle() should be {:?}", window[0], window[1]);
+        }
+        // XHigh wraps back to Off.
+        assert_eq!(ThinkingLevel::XHigh.cycle(), ThinkingLevel::Off);
+    }
+
+    // ── ThinkingLevel::label ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_labels() {
+        assert_eq!(ThinkingLevel::Off.label(),    "off");
+        assert_eq!(ThinkingLevel::Low.label(),    "low");
+        assert_eq!(ThinkingLevel::Medium.label(), "medium");
+        assert_eq!(ThinkingLevel::High.label(),   "high");
+        assert_eq!(ThinkingLevel::XHigh.label(),  "xhigh");
+    }
+
+    // ── ThinkingLevel::from_str ──────────────────────────────────────────────
+
+    #[test]
+    fn test_from_str_canonical() {
+        assert_eq!(ThinkingLevel::from_str("off"),    Some(ThinkingLevel::Off));
+        assert_eq!(ThinkingLevel::from_str("low"),    Some(ThinkingLevel::Low));
+        assert_eq!(ThinkingLevel::from_str("medium"), Some(ThinkingLevel::Medium));
+        assert_eq!(ThinkingLevel::from_str("high"),   Some(ThinkingLevel::High));
+        assert_eq!(ThinkingLevel::from_str("xhigh"),  Some(ThinkingLevel::XHigh));
+    }
+
+    #[test]
+    fn test_from_str_aliases() {
+        // "med" and "x-high" are accepted as aliases.
+        assert_eq!(ThinkingLevel::from_str("med"),    Some(ThinkingLevel::Medium));
+        assert_eq!(ThinkingLevel::from_str("x-high"), Some(ThinkingLevel::XHigh));
+    }
+
+    #[test]
+    fn test_from_str_case_insensitive() {
+        assert_eq!(ThinkingLevel::from_str("OFF"),    Some(ThinkingLevel::Off));
+        assert_eq!(ThinkingLevel::from_str("Low"),    Some(ThinkingLevel::Low));
+        assert_eq!(ThinkingLevel::from_str("MEDIUM"), Some(ThinkingLevel::Medium));
+        assert_eq!(ThinkingLevel::from_str("HIGH"),   Some(ThinkingLevel::High));
+        assert_eq!(ThinkingLevel::from_str("XHIGH"),  Some(ThinkingLevel::XHigh));
+    }
+
+    #[test]
+    fn test_from_str_unknown_returns_none() {
+        assert_eq!(ThinkingLevel::from_str(""),         None);
+        assert_eq!(ThinkingLevel::from_str("supermax"), None);
+        assert_eq!(ThinkingLevel::from_str("1"),        None);
+    }
+
+    // ── Provider mappings ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_anthropic_budget_off_is_none() {
+        assert_eq!(ThinkingLevel::Off.anthropic_budget(), None);
+    }
+
+    #[test]
+    fn test_anthropic_budget_increases_with_level() {
+        let budgets: Vec<u32> = [
+            ThinkingLevel::Low,
+            ThinkingLevel::Medium,
+            ThinkingLevel::High,
+            ThinkingLevel::XHigh,
+        ]
+        .iter()
+        .map(|l| l.anthropic_budget().expect("should have a budget"))
+        .collect();
+
+        for w in budgets.windows(2) {
+            assert!(w[0] < w[1], "budget should increase: {} < {}", w[0], w[1]);
+        }
+    }
+
+    #[test]
+    fn test_openai_effort_off_is_none() {
+        assert_eq!(ThinkingLevel::Off.openai_effort(), None);
+    }
+
+    #[test]
+    fn test_openai_effort_values() {
+        assert_eq!(ThinkingLevel::Low.openai_effort(),    Some("low"));
+        assert_eq!(ThinkingLevel::Medium.openai_effort(), Some("medium"));
+        assert_eq!(ThinkingLevel::High.openai_effort(),   Some("high"));
+        // xhigh is capped at "high" (API maximum).
+        assert_eq!(ThinkingLevel::XHigh.openai_effort(),  Some("high"));
+    }
+
+    #[test]
+    fn test_gemini_budget_off_is_none() {
+        assert_eq!(ThinkingLevel::Off.gemini_budget(), None);
+    }
+
+    #[test]
+    fn test_gemini_budget_xhigh_is_dynamic() {
+        // -1 signals "dynamic" to the Gemini API.
+        assert_eq!(ThinkingLevel::XHigh.gemini_budget(), Some(-1));
+    }
+
+    #[test]
+    fn test_gemini_budget_non_xhigh_values_are_positive() {
+        for level in [ThinkingLevel::Low, ThinkingLevel::Medium, ThinkingLevel::High] {
+            let budget = level.gemini_budget().expect("should have a budget");
+            assert!(budget > 0, "{:?} budget should be positive, got {}", level, budget);
+        }
+    }
+
+    // ── Default ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_default_is_off() {
+        assert_eq!(ThinkingLevel::default(), ThinkingLevel::Off);
+    }
+}

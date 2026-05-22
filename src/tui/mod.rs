@@ -923,4 +923,36 @@ mod tests {
         app.cycle_model();
         assert_eq!(*arc.read().unwrap(), "m1");
     }
+
+    // ── cycle_thinking ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_thinking_starts_off() {
+        let app = make_app(vec!["gpt-4o"]);
+        assert_eq!(*app.active_thinking.read().unwrap(), ThinkingLevel::Off);
+    }
+
+    #[test]
+    fn test_cycle_thinking_full_sequence() {
+        let mut app = make_app(vec!["gpt-4o"]);
+        use ThinkingLevel::*;
+        let expected = [Low, Medium, High, XHigh, Off];
+        for level in expected {
+            app.cycle_thinking();
+            assert_eq!(*app.active_thinking.read().unwrap(), level);
+        }
+    }
+
+    #[test]
+    fn test_cycle_thinking_updates_arc() {
+        let mut app = make_app(vec!["gpt-4o"]);
+        let arc = Arc::clone(&app.active_thinking);
+        assert_eq!(*arc.read().unwrap(), ThinkingLevel::Off);
+
+        app.cycle_thinking();
+        assert_eq!(*arc.read().unwrap(), ThinkingLevel::Low);
+
+        app.cycle_thinking();
+        assert_eq!(*arc.read().unwrap(), ThinkingLevel::Medium);
+    }
 }

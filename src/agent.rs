@@ -929,4 +929,132 @@ mod tests {
         // The 6th-from-last User is at position 4 (turn 3 out of 8, 0-based)
         assert_eq!(idx, 4);
     }
+    // ── ThinkingLevel threading ───────────────────────────────────────────────
+
+    /// A mock provider that records the ThinkingLevel from every request it
+    /// receives into a shared Arc so the caller can inspect it after the run.
+    struct CapturingProvider {
+        responses: Mutex<VecDeque<anyhow::Result<LlmResponse>>>,
+        /// Shared with the test so we can read captured levels after the run.
+        captured: Arc<Mutex<Vec<ThinkingLevel>>>,
+    }
+
+    impl CapturingProvider {
+        fn new_with_sink(
+            responses: Vec<anyhow::Result<LlmResponse>>,
+            sink: Arc<Mutex<Vec<ThinkingLevel>>>,
+        ) -> Self {
+            Self {
+                responses: Mutex::new(responses.into_iter().collect()),
+                captured: sink,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl crate::providers::Provider for CapturingProvider {
+        fn name(&self) -> &str { "capturing" }
+        fn default_model(&self) -> &str { "mock-model" }
+
+        async fn chat(&self, _req: crate::types::LlmRequest) -> anyhow::Result<LlmResponse> {
+            self.responses.lock().unwrap().pop_front()
+                .unwrap_or_else(|| Err(anyhow::anyhow!("CapturingProvider: no more responses")))
+        }
+
+        async fn chat_streaming(
+            &self,
+            req: crate::types::LlmRequest,
+            _tx: tokio::sync::mpsc::Sender<String>,
+        ) -> anyhow::Result<LlmResponse> {
+            self.captured.lock().unwrap().push(req.thinking_level);
+            self.chat(req).await
+        }
+    }
+
+    fn make_capturing_agent(
+        level: ThinkingLevel,
+        sink: Arc<Mutex<Vec<ThinkingLevel>>>,
+    ) -> Agent {
+        let provider = CapturingProvider::new_with_sink(vec![simple_answer("ok")], sink);
+        let config = AgentConfig {
+            model: "mock-model".to_string(),
+            system_prompt: "test".to_string(),
+            max_steps: 5,
+            timeout_secs: 5,
+            context_window: 128000,
+            thinking_level: level,
+        };
+        Agent::new(config, Box::new(provider), crate::tools::ToolRegistry::new())
+    }
+
+    #[tokio::test]
+    async fn test_thinking_level_forwarded_to_provider_off() {
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let agent = make_capturing_agent(ThinkingLevel::Off, Arc::clone(&sink));
+        let _ = agent.run("test".to_string()).await;
+        let levels = sink.lock().unwrap();
+        assert_eq!(levels.as_slice(), &[ThinkingLevel::Off]);
+    }
+
+    #[tokio::test]
+    async fn test_thinking_level_forwarded_to_provider_medium() {
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let agent = make_capturing_agent(ThinkingLevel::Medium, Arc::clone(&sink));
+        let _ = agent.run("test".to_string()).await;
+        let levels = sink.lock().unwrap();
+        assert_eq!(levels.as_slice(), &[ThinkingLevel::Medium]);
+    }
+
+    #[tokio::test]
+    async fn test_thinking_level_forwarded_to_provider_xhigh() {
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let agent = make_capturing_agent(ThinkingLevel::XHigh, Arc::clone(&sink));
+        let _ = agent.run("test".to_string()).await;
+        let levels = sink.lock().unwrap();
+        assert_eq!(levels.as_slice(), &[ThinkingLevel::XHigh]);
+    }
+
+    #[tokio::test]
+    async fn test_active_thinking_swap_reflected_in_request() {
+        // Start at Off; swap to High via the Arc before the run; provider
+        // should see High in the request.
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let agent = make_capturing_agent(ThinkingLevel::Off, Arc::clone(&sink));
+        *agent.active_thinking.write().unwrap() = ThinkingLevel::High;
+        let _ = agent.run("test".to_string()).await;
+        let levels = sink.lock().unwrap();
+        assert_eq!(levels.as_slice(), &[ThinkingLevel::High]);
+    }
+
+    #[test]
+    fn test_active_thinking_initialised_from_config() {
+        let config = AgentConfig {
+            model: "m".to_string(),
+            system_prompt: "s".to_string(),
+            max_steps: 1,
+            timeout_secs: 1,
+            context_window: 128000,
+            thinking_level: ThinkingLevel::XHigh,
+        };
+        let provider = MockProvider::new(vec![]);
+        let agent = Agent::new(config, Box::new(provider), crate::tools::ToolRegistry::new());
+        assert_eq!(*agent.active_thinking.read().unwrap(), ThinkingLevel::XHigh);
+    }
+
+    #[test]
+    fn test_active_thinking_default_is_off() {
+        let config = AgentConfig {
+            model: "m".to_string(),
+            system_prompt: "s".to_string(),
+            max_steps: 1,
+            timeout_secs: 1,
+            context_window: 128000,
+            thinking_level: ThinkingLevel::Off,
+        };
+        let provider = MockProvider::new(vec![]);
+        let agent = Agent::new(config, Box::new(provider), crate::tools::ToolRegistry::new());
+        assert_eq!(*agent.active_thinking.read().unwrap(), ThinkingLevel::Off);
+    }
+
+
 }

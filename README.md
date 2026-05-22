@@ -4,6 +4,20 @@ A cross-platform CI/CD AI agent written in Rust. Single static binary, dual-mode
 
 See [SPEC.md](SPEC.md) for the full design specification. This README documents what is currently implemented.
 
+## Install
+
+Install the latest published binary release:
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/canonical/alchemy/refs/heads/main/install.sh | bash
+```
+
+```powershell
+# Windows (PowerShell)
+powershell -c "irm https://raw.githubusercontent.com/canonical/alchemy/refs/heads/main/install.ps1 | iex"
+```
+
 ## Status
 
 Working in v0.1.0:

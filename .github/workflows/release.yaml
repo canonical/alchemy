@@ -140,7 +140,7 @@ jobs:
     name: Publish release
     runs-on: ubuntu-latest
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
 
     steps:
       - name: Download artifacts
@@ -159,6 +159,8 @@ jobs:
               exit 1
             fi
             tag_name="${{ inputs.tag_name }}"
+          elif [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            tag_name="latest"
           else
             tag_name="${GITHUB_REF_NAME}"
           fi
@@ -168,5 +170,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag_name }}
-          generate_release_notes: true
+          name: ${{ steps.tag.outputs.tag_name == 'latest' && 'latest (main)' || steps.tag.outputs.tag_name }}
+          generate_release_notes: ${{ steps.tag.outputs.tag_name != 'latest' }}
+          body: ${{ steps.tag.outputs.tag_name == 'latest' && 'Automated rolling release from main.' || '' }}
+          make_latest: ${{ steps.tag.outputs.tag_name == 'latest' && 'true' || 'legacy' }}
+          overwrite_files: true
           files: dist/**/*

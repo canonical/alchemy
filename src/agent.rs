@@ -1,6 +1,6 @@
 use crate::providers::Provider;
 use crate::tools::ToolRegistry;
-use crate::types::{AgentResult, LlmRequest, Message, MessageRole, ToolCall};
+use crate::types::{AgentResult, LlmRequest, Message, MessageRole, ThinkingLevel, ToolCall};
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
@@ -12,6 +12,7 @@ pub struct AgentConfig {
     pub max_steps: u32,
     pub timeout_secs: u64,
     pub context_window: u64,
+    pub thinking_level: ThinkingLevel,
 }
 
 pub struct Agent {
@@ -21,6 +22,7 @@ pub struct Agent {
     /// `config.model`; callers may replace this Arc to share ownership with
     /// the TUI.
     pub active_model: Arc<RwLock<String>>,
+    pub active_thinking: Arc<RwLock<ThinkingLevel>>,
     pub provider: Box<dyn Provider>,
     pub registry: Arc<ToolRegistry>,
 }
@@ -50,7 +52,8 @@ pub struct StepEvent {
 impl Agent {
     pub fn new(config: AgentConfig, provider: Box<dyn Provider>, registry: ToolRegistry) -> Self {
         let active_model = Arc::new(RwLock::new(config.model.clone()));
-        Self { active_model, config, provider, registry: Arc::new(registry) }
+        let active_thinking = Arc::new(RwLock::new(config.thinking_level));
+        Self { active_model, active_thinking, config, provider, registry: Arc::new(registry) }
     }
 
     /// Single-shot run: no conversation history, no streaming events.
@@ -140,11 +143,13 @@ impl Agent {
             tracing::info!("step {}: calling LLM (model={})", steps, model);
             self.compact_context(&mut messages);
 
+            let thinking_level = *self.active_thinking.read().unwrap();
             let request = LlmRequest {
                 model,
                 messages: messages.clone(),
                 tools: self.registry.definitions.clone(),
                 temperature: None,
+                thinking_level,
             };
 
             let mut last_error: Option<anyhow::Error> = None;
@@ -511,6 +516,7 @@ mod tests {
             max_steps: 5,
             timeout_secs: 5,
             context_window: 128000,
+            thinking_level: ThinkingLevel::Off,
         };
         Agent::new(config, Box::new(provider), crate::tools::ToolRegistry::new())
     }
@@ -523,6 +529,7 @@ mod tests {
             max_steps: 30,
             timeout_secs: 30,
             context_window: 128000,
+            thinking_level: ThinkingLevel::Off,
         };
         assert_eq!(config.max_steps, 30);
     }
@@ -553,6 +560,7 @@ mod tests {
             max_steps: 1,
             timeout_secs: 5,
             context_window: 128000,
+            thinking_level: ThinkingLevel::Off,
         };
         let agent = Agent::new(config, Box::new(provider), crate::tools::ToolRegistry::new());
         let result = agent.run("test".to_string()).await;
@@ -678,6 +686,7 @@ mod tests {
             max_steps: 5,
             timeout_secs: 10,
             context_window: 128000,
+            thinking_level: ThinkingLevel::Off,
         };
         let agent = Agent::new(config, provider, crate::tools::ToolRegistry::new());
         let result = agent.run("Say hello".to_string()).await;
@@ -714,6 +723,7 @@ mod tests {
             max_steps: 5,
             timeout_secs: 10,
             context_window: 128000,
+            thinking_level: ThinkingLevel::Off,
         };
         let agent = Agent::new(config, provider, crate::tools::ToolRegistry::new());
         let result = agent.run("test".to_string()).await;
@@ -747,6 +757,7 @@ mod tests {
             max_steps: 5,
             timeout_secs: 5,
             context_window: 128000,
+            thinking_level: ThinkingLevel::Off,
         };
         let provider = MockProvider::new(vec![]);
         let agent = Agent::new(config, Box::new(provider), crate::tools::ToolRegistry::new());
@@ -777,6 +788,7 @@ mod tests {
             max_steps: 5,
             timeout_secs: 30,
             context_window: 128000,
+            thinking_level: ThinkingLevel::Off,
         };
         let agent = Agent::new(config, provider, crate::tools::ToolRegistry::new());
         let result = agent
@@ -811,6 +823,7 @@ mod tests {
             max_steps: 10,
             timeout_secs: 30,
             context_window: 128000,
+            thinking_level: ThinkingLevel::Off,
         };
         let agent = Agent::new(config, provider, crate::tools::ToolRegistry::new());
         let result = agent
@@ -863,6 +876,7 @@ mod tests {
             max_steps: 5,
             timeout_secs: 10,
             context_window: 128000,
+            thinking_level: ThinkingLevel::Off,
         };
         let agent = Agent::new(config, make_provider(), crate::tools::ToolRegistry::new());
 

@@ -16,6 +16,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::sync::{Arc, RwLock};
 use crate::agent::{Agent, AgentConfig, FileEvent, StepEvent, ToolEvent};
+use crate::types::ThinkingLevel;
 use crate::providers::Provider;
 use crate::tools::ToolRegistry;
 use crate::types::{AgentResult, Message};
@@ -72,6 +73,8 @@ pub struct TuiApp {
     /// Shared handle so `handle_key` can write the new model name into the
     /// running `Agent` without recreating it.
     pub active_model: Arc<RwLock<String>>,
+    /// Shared handle for the thinking level, synced to the agent each turn.
+    pub active_thinking: Arc<RwLock<ThinkingLevel>>,
     pub total_tokens: u64,
     pub steps: u32,
     conversation_history: Vec<Message>,
@@ -163,6 +166,7 @@ impl TuiApp {
         debug_assert!(!models.is_empty(), "TuiApp::new requires at least one model");
         let model_name = models[0].clone();
         let active_model = Arc::new(RwLock::new(model_name.clone()));
+        let active_thinking = Arc::new(RwLock::new(ThinkingLevel::Off));
         let (show_tools, show_files) = theme::load_panels();
         Self {
             session_name,
@@ -179,6 +183,7 @@ impl TuiApp {
             models,
             model_idx: 0,
             active_model,
+            active_thinking,
             total_tokens: 0,
             steps: 0,
             conversation_history: Vec::new(),
@@ -232,6 +237,13 @@ impl TuiApp {
     /// Returns the currently active color palette.
     pub fn theme(&self) -> &'static theme::ThemePalette {
         &theme::THEMES[self.theme_idx]
+    }
+
+    /// Cycle to the next thinking level (Off→Low→Medium→High→XHigh→Off).
+    /// Blocked while agent is busy (same guard as cycle_model).
+    fn cycle_thinking(&mut self) {
+        let current = *self.active_thinking.read().unwrap();
+        *self.active_thinking.write().unwrap() = current.cycle();
     }
 
     /// Cycle to the next model in the list (wraps around).
@@ -295,6 +307,7 @@ impl TuiApp {
         // changes take effect immediately without recreating the agent.
         let mut agent = Agent::new(config, provider, registry);
         agent.active_model = Arc::clone(&self.active_model);
+        agent.active_thinking = Arc::clone(&self.active_thinking);
         let agent = Arc::new(agent);
 
         loop {
@@ -580,6 +593,11 @@ impl TuiApp {
             // Blocked while the agent is running to avoid switching mid-turn.
             (KeyModifiers::ALT, KeyCode::Char('z')) if !self.agent_busy => {
                 self.cycle_model();
+            }
+
+            // ── Thinking level cycling (Alt+X) ───────────────────────────────
+            (KeyModifiers::ALT, KeyCode::Char('x')) if !self.agent_busy => {
+                self.cycle_thinking();
             }
 
             // ── Exit / interrupt ─────────────────────────────────────────────

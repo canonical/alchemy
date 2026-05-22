@@ -139,6 +139,15 @@ impl Provider for GeminiProvider {
             body["tools"] = tools;
         }
 
+        // Inject thinkingConfig when level is not Off.
+        if let Some(budget) = request.thinking_level.gemini_budget() {
+            body["generationConfig"] = serde_json::json!({
+                "thinkingConfig": {
+                    "thinkingBudget": budget,
+                }
+            });
+        }
+
         let resp = self.client.post(&url).json(&body).send().await?;
         let status = resp.status();
 
@@ -171,6 +180,10 @@ impl Provider for GeminiProvider {
                         for candidate in candidates {
                             if let Some(parts) = candidate["content"]["parts"].as_array() {
                                 for part in parts {
+                                    // Skip thought parts (internal reasoning).
+                                    if part.get("thought").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                        continue;
+                                    }
                                     if let Some(text) = part["text"].as_str() {
                                         full_content.push_str(text);
                                         let _ = tx.send(text.to_string()).await;
@@ -228,4 +241,3 @@ impl Provider for GeminiProvider {
         Ok(results)
     }
 }
-

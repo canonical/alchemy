@@ -48,6 +48,94 @@ pub struct FunctionDefinition {
     pub parameters: serde_json::Value,
 }
 
+/// Thinking / reasoning level passed through to the provider.
+///
+/// Maps to:
+///   - Anthropic  → `thinking.budget_tokens`  (+ `anthropic-beta` header)
+///   - OpenAI     → `reasoning_effort`
+///   - Gemini     → `generationConfig.thinkingConfig.thinkingBudget`
+///   - Others     → silently ignored
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThinkingLevel {
+    #[default]
+    Off,
+    Low,
+    Medium,
+    High,
+    XHigh,
+}
+
+impl ThinkingLevel {
+    /// Advance to the next level, wrapping Off→Low→…→XHigh→Off.
+    pub fn cycle(self) -> Self {
+        match self {
+            ThinkingLevel::Off    => ThinkingLevel::Low,
+            ThinkingLevel::Low    => ThinkingLevel::Medium,
+            ThinkingLevel::Medium => ThinkingLevel::High,
+            ThinkingLevel::High   => ThinkingLevel::XHigh,
+            ThinkingLevel::XHigh  => ThinkingLevel::Off,
+        }
+    }
+
+    /// Short display label shown in the TUI status bar.
+    pub fn label(self) -> &'static str {
+        match self {
+            ThinkingLevel::Off    => "off",
+            ThinkingLevel::Low    => "low",
+            ThinkingLevel::Medium => "medium",
+            ThinkingLevel::High   => "high",
+            ThinkingLevel::XHigh  => "xhigh",
+        }
+    }
+
+    /// Case-insensitive parse from a string (e.g. from env var or Concourse source).
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "off"              => Some(ThinkingLevel::Off),
+            "low"              => Some(ThinkingLevel::Low),
+            "medium" | "med"   => Some(ThinkingLevel::Medium),
+            "high"             => Some(ThinkingLevel::High),
+            "xhigh" | "x-high" => Some(ThinkingLevel::XHigh),
+            _                  => None,
+        }
+    }
+
+    /// Anthropic `thinking.budget_tokens`. `None` means thinking is disabled.
+    pub fn anthropic_budget(self) -> Option<u32> {
+        match self {
+            ThinkingLevel::Off    => None,
+            ThinkingLevel::Low    => Some(1_024),
+            ThinkingLevel::Medium => Some(8_192),
+            ThinkingLevel::High   => Some(32_000),
+            ThinkingLevel::XHigh  => Some(100_000),
+        }
+    }
+
+    /// OpenAI `reasoning_effort` string. `None` means do not send the field.
+    pub fn openai_effort(self) -> Option<&'static str> {
+        match self {
+            ThinkingLevel::Off    => None,
+            ThinkingLevel::Low    => Some("low"),
+            ThinkingLevel::Medium => Some("medium"),
+            ThinkingLevel::High   => Some("high"),
+            ThinkingLevel::XHigh  => Some("high"), // API maximum
+        }
+    }
+
+    /// Gemini `thinkingBudget`. `None` means do not send the field.
+    /// `-1` means dynamic (let the model decide).
+    pub fn gemini_budget(self) -> Option<i32> {
+        match self {
+            ThinkingLevel::Off    => None,
+            ThinkingLevel::Low    => Some(1_024),
+            ThinkingLevel::Medium => Some(8_192),
+            ThinkingLevel::High   => Some(32_000),
+            ThinkingLevel::XHigh  => Some(-1), // dynamic
+        }
+    }
+}
+
 /// Request to the LLM provider
 #[derive(Debug, Clone)]
 pub struct LlmRequest {
@@ -55,6 +143,8 @@ pub struct LlmRequest {
     pub messages: Vec<Message>,
     pub tools: Vec<ToolDefinition>,
     pub temperature: Option<f64>,
+    /// Thinking / reasoning level. Providers that don't support it ignore this.
+    pub thinking_level: ThinkingLevel,
 }
 
 /// Response from the LLM provider
@@ -101,6 +191,8 @@ pub struct ConcourseSource {
     pub timeout_secs: Option<u64>,
     /// Output format for written files: "json", "text", or omitted (both).
     pub output_format: Option<String>,
+    /// Thinking level: "off", "low", "medium", "high", "xhigh".
+    pub thinking_level: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -130,6 +222,8 @@ pub struct ConcourseOutParams {
     pub max_steps: Option<u32>,
     pub timeout_secs: Option<u64>,
     pub output_format: Option<String>,
+    /// Override `source.thinking_level` for this invocation.
+    pub thinking_level: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

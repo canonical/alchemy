@@ -66,13 +66,15 @@ fn draw_status_bar(f: &mut Frame, app: &mut TuiApp, area: Rect) {
         app.model_name.clone()
     };
 
+    let thinking_label = app.active_thinking.read().unwrap().label().to_string();
     let left = format!(
-        " Alchemy  │ {}  │ {}  │ ⏱ {} steps  │ 📊 {}k tokens  │ 🎨 {}  │ {} {}",
+        " Alchemy  │ {}  │ {}  │ ⏱ {} steps  │ 📊 {}k tokens  │ 🎨 {}  │ 🧠 {}  │ {} {}",
         app.session_name,
         model_display,
         app.steps,
         app.total_tokens / 1000,
         t.name,
+        thinking_label,
         tools_ind,
         files_ind,
     );
@@ -518,6 +520,7 @@ fn draw_help_overlay(
         div(),
         kline!("Alt+C",         "Cycle theme (Dark/Light/Dracula/Solarized)"),
         kline!("Alt+Z",         "Cycle active model (from ALCHEMY_MODEL list)"),
+        kline!("Alt+X",         "Cycle thinking level (off/low/medium/high/xhigh)"),
         Line::from(""),
         section!("Session"),
         div(),

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
-use crate::types::{LlmRequest, LlmResponse, ToolCall, FunctionCall, Usage, MessageRole};
+use crate::types::{LlmRequest, LlmResponse, ToolCall, FunctionCall, Usage, MessageRole, ThinkingLevel};
 use crate::providers::Provider;
 
 pub struct AnthropicProvider {
@@ -111,7 +111,7 @@ impl Provider for AnthropicProvider {
         let mut body = serde_json::json!({
             "model": request.model,
             "messages": messages,
-            "max_tokens": 4096,
+            "max_tokens": 16000,
             "stream": true,
         });
         if let Some(s) = system {
@@ -121,13 +121,27 @@ impl Provider for AnthropicProvider {
             body["tools"] = t;
         }
 
-        let resp = self.client.post(&url)
+        // Inject thinking block when level is not Off.
+        let use_thinking = request.thinking_level != ThinkingLevel::Off;
+        if let Some(budget) = request.thinking_level.anthropic_budget() {
+            body["thinking"] = serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": budget,
+            });
+            // Thinking is incompatible with temperature != 1; ensure we don't send it.
+            body["temperature"] = serde_json::json!(1);
+        }
+
+        let mut req_builder = self.client.post(&url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
+            .header("content-type", "application/json");
+
+        if use_thinking {
+            req_builder = req_builder.header("anthropic-beta", "interleaved-thinking-2025-05-14");
+        }
+
+        let resp = req_builder.json(&body).send().await?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -141,6 +155,10 @@ impl Provider for AnthropicProvider {
         let mut current_tool_name = String::new();
         let mut current_tool_args = String::new();
         let mut in_tool = false;
+        // Track whether we are inside a thinking block — tokens from thinking
+        // blocks are internal reasoning and must NOT be forwarded to the TUI or
+        // included in the visible answer.
+        let mut in_thinking = false;
         let mut usage_data = None;
 
         use futures::StreamExt;
@@ -163,11 +181,21 @@ impl Provider for AnthropicProvider {
                     match event["type"].as_str() {
                         Some("content_block_start") => {
                             if let Some(cb) = event.get("content_block") {
-                                if cb["type"].as_str() == Some("tool_use") {
-                                    current_tool_id = cb["id"].as_str().unwrap_or("").to_string();
-                                    current_tool_name = cb["name"].as_str().unwrap_or("").to_string();
-                                    current_tool_args.clear();
-                                    in_tool = true;
+                                match cb["type"].as_str() {
+                                    Some("tool_use") => {
+                                        current_tool_id = cb["id"].as_str().unwrap_or("").to_string();
+                                        current_tool_name = cb["name"].as_str().unwrap_or("").to_string();
+                                        current_tool_args.clear();
+                                        in_tool = true;
+                                        in_thinking = false;
+                                    }
+                                    Some("thinking") => {
+                                        in_thinking = true;
+                                        in_tool = false;
+                                    }
+                                    _ => {
+                                        in_thinking = false;
+                                    }
                                 }
                             }
                         }
@@ -175,9 +203,14 @@ impl Provider for AnthropicProvider {
                             if let Some(delta) = event.get("delta") {
                                 if delta["type"].as_str() == Some("text_delta") {
                                     if let Some(text) = delta["text"].as_str() {
-                                        full_content.push_str(text);
-                                        let _ = tx.send(text.to_string()).await;
+                                        if !in_thinking {
+                                            full_content.push_str(text);
+                                            let _ = tx.send(text.to_string()).await;
+                                        }
+                                        // thinking_delta tokens are silently dropped
                                     }
+                                } else if delta["type"].as_str() == Some("thinking_delta") {
+                                    // Internal reasoning — discard entirely.
                                 } else if delta["type"].as_str() == Some("input_json_delta") {
                                     if let Some(json) = delta["partial_json"].as_str() {
                                         current_tool_args.push_str(json);
@@ -185,20 +218,23 @@ impl Provider for AnthropicProvider {
                                 }
                             }
                         }
-                        Some("content_block_stop") if in_tool => {
-                            tool_calls.push(ToolCall {
-                                id: current_tool_id.clone(),
-                                r#type: "function".to_string(),
-                                function: FunctionCall {
-                                    name: current_tool_name.clone(),
-                                    arguments: if current_tool_args.is_empty() {
-                                        "{}".to_string()
-                                    } else {
-                                        current_tool_args.clone()
+                        Some("content_block_stop") => {
+                            if in_tool {
+                                tool_calls.push(ToolCall {
+                                    id: current_tool_id.clone(),
+                                    r#type: "function".to_string(),
+                                    function: FunctionCall {
+                                        name: current_tool_name.clone(),
+                                        arguments: if current_tool_args.is_empty() {
+                                            "{}".to_string()
+                                        } else {
+                                            current_tool_args.clone()
+                                        },
                                     },
-                                },
-                            });
-                            in_tool = false;
+                                });
+                                in_tool = false;
+                            }
+                            in_thinking = false;
                         }
                         Some("message_delta") => {
                             if let Some(u) = event.get("usage") {

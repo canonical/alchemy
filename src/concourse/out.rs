@@ -20,10 +20,12 @@ pub async fn run(input: ConcourseOutInput, source_dir: &str) -> Result<Concourse
     let system_override = params.and_then(|p| p.system_prompt.as_deref());
     let max_steps_override = params.and_then(|p| p.max_steps);
     let timeout_override = params.and_then(|p| p.timeout_secs);
+    // params.thinking_level overrides source.thinking_level for this invocation.
+    let thinking_override = params.and_then(|p| p.thinking_level.as_deref());
 
     let (agent, mut prompt, model) = create_agent_from_source(
         &input.source, prompt_override, model_override, system_override,
-        max_steps_override, timeout_override,
+        max_steps_override, timeout_override, thinking_override,
     )?;
 
     prompt.push_str(&extra_input);

@@ -103,6 +103,7 @@ All knobs are environment variables; CLI flags override env vars.
 | `ALCHEMY_MAX_STEPS` | `30` | Agent loop iteration limit |
 | `ALCHEMY_TIMEOUT_SECS` | `30` | Per-tool timeout (`execute_cmd`, `fetch_url`) |
 | `ALCHEMY_CONTEXT_WINDOW` | `128000` | Drives context compaction at 85% |
+| `ALCHEMY_THINKING_LEVEL` | `off` | Reasoning depth: `off` / `low` / `medium` / `high` / `xhigh` |
 | `ALCHEMY_OUTPUT` | `json` | `json` or `text` (pipe mode) |
 | `ALCHEMY_LOG_LEVEL` | `warn` | `error` / `warn` / `info` / `debug` / `trace` |
 | `ALCHEMY_LOG_FILE` | `~/.alchemy/debug.log` | TUI log destination |
@@ -315,6 +316,8 @@ alchemy rag {index <PATH> [--glob G] | search <Q> | status | clear}
 --max-steps <N>        Override ALCHEMY_MAX_STEPS
 --timeout <SECS>       Override ALCHEMY_TIMEOUT_SECS
 ```
+
+In TUI mode **Alt+X** cycles the thinking level live (off → low → medium → high → xhigh → off). The current level is shown in the status bar as `🧠 <level>`.
 
 ### Output
 

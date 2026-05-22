@@ -4,6 +4,7 @@ pub mod out;
 
 use anyhow::Result;
 use crate::types::*;
+use crate::types::ThinkingLevel;
 use crate::agent::{Agent, AgentConfig};
 use crate::tools::ToolRegistry;
 use crate::providers;
@@ -29,6 +30,7 @@ pub(crate) fn create_agent_from_source(
     system_override: Option<&str>,
     max_steps_override: Option<u32>,
     timeout_override: Option<u64>,
+    thinking_override: Option<&str>,
 ) -> Result<(Agent, String, String)> {
     let provider_name = source.provider.as_deref()
         .ok_or_else(|| anyhow::anyhow!("source.provider is required"))?;
@@ -53,12 +55,24 @@ pub(crate) fn create_agent_from_source(
         .unwrap_or("")
         .to_string();
 
+    // Resolve thinking level: param override > source field > env var > Off.
+    let thinking_level = thinking_override
+        .or(source.thinking_level.as_deref())
+        .and_then(ThinkingLevel::from_str)
+        .unwrap_or_else(|| {
+            std::env::var("ALCHEMY_THINKING_LEVEL")
+                .ok()
+                .and_then(|s| ThinkingLevel::from_str(&s))
+                .unwrap_or(ThinkingLevel::Off)
+        });
+
     let config = AgentConfig {
         model: model.clone(),
         system_prompt,
         max_steps,
         timeout_secs: timeout,
         context_window: 128000,
+        thinking_level,
     };
 
     let registry = ToolRegistry::new();

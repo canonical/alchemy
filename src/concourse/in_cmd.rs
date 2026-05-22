@@ -4,7 +4,7 @@ use crate::concourse::create_agent_from_source;
 
 pub async fn run(input: ConcourseInInput, dest_dir: &str) -> Result<ConcourseInOutput> {
     let (agent, prompt, model) = create_agent_from_source(
-        &input.source, None, None, None, None, None,
+        &input.source, None, None, None, None, None, None,
     )?;
 
     let started = std::time::Instant::now();

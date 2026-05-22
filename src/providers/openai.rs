@@ -54,6 +54,12 @@ impl OpenAiProvider {
             body["temperature"] = serde_json::json!(temp);
         }
 
+        // reasoning_effort is supported by openai, openrouter, and github-copilot.
+        // Ollama silently ignores unknown fields, so it's safe to send everywhere.
+        if let Some(effort) = request.thinking_level.openai_effort() {
+            body["reasoning_effort"] = serde_json::json!(effort);
+        }
+
         body
     }
 }

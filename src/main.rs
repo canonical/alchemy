@@ -351,12 +351,18 @@ async fn run_pipe(cli: Cli) -> Result<i32> {
         format!("{}{}\n{}", system_prompt, skill_context, rag_context)
     };
 
+    let thinking_level = std::env::var("ALCHEMY_THINKING_LEVEL")
+        .ok()
+        .and_then(|s| crate::types::ThinkingLevel::from_str(&s))
+        .unwrap_or_default();
+
     let config = AgentConfig {
         model,
         system_prompt: full_system,
         max_steps,
         timeout_secs,
         context_window,
+        thinking_level,
     };
 
     let agent = Agent::new(config, provider, registry);
@@ -542,6 +548,10 @@ async fn run_tui(
             .or_else(|| std::env::var("ALCHEMY_TIMEOUT_SECS").ok().and_then(|s| s.parse().ok()))
             .unwrap_or(30),
         context_window: std::env::var("ALCHEMY_CONTEXT_WINDOW").ok().and_then(|s| s.parse().ok()).unwrap_or(128000),
+        thinking_level: std::env::var("ALCHEMY_THINKING_LEVEL")
+            .ok()
+            .and_then(|s| crate::types::ThinkingLevel::from_str(&s))
+            .unwrap_or_default(),
     };
 
     let prompt_history_path = dirs_path("prompt_history");

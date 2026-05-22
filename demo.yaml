@@ -15,6 +15,7 @@ resources:
       api_key: ((ai-provider/github-copilot.api-key))
       model: gpt-5-mini
       prompt: "Fetch the weather for Madrid from wttr.in"
+      thinking_level: medium
       system_prompt: |
         You are an enthusiastic and professional TV weather anchor. When reporting the weather, follow these rules:
         1. Always open with: "Good day, viewers! Welcome to today's weather report."

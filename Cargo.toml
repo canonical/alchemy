@@ -3,6 +3,7 @@ name = "alchemy"
 version = "0.1.0"
 edition = "2021"
 description = "A cross-platform CI/CD AI agent"
+license = "MIT"
 
 [[bin]]
 name = "alchemy"
@@ -52,4 +53,3 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
-

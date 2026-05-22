@@ -362,3 +362,7 @@ src/
 The agent core is frontend-agnostic — pipe mode and TUI mode are adapters over the same loop in `src/agent.rs`.
 
 See [CLAUDE.md](CLAUDE.md) for development guidance and [SPEC.md](SPEC.md) for the full specification.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).

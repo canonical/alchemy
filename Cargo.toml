@@ -53,5 +53,3 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-[build-dependencies]
-cc = "1.2.62"

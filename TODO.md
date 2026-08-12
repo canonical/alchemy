@@ -7,6 +7,9 @@
 - [x] **Reranking** — `retriever.rs` implements MMR (Maximal Marginal Relevance) reranking. Note: per-chunk embeddings are not persisted, so inter-candidate similarity is approximated via relevance-score proximity rather than true embedding-space distance.
 - [x] **`sqlite-vec` extension** — `sqlite-vec` v0.1.9 statically linked via `cc::Build` + `sqlite3_auto_extension`; `store.rs` uses a `vec0` virtual table with `distance_metric=cosine`; auto-migrates old BLOB-schema DBs on open (chunks content preserved, embeddings dropped with a warning)
 - [x] **External vector store backends** — Qdrant and Chroma HTTP backends implemented. `VectorStoreBackend` trait in `store.rs` abstracts over SQLite/Qdrant/Chroma. Backend selected via `ALCHEMY_RAG_STORE=sqlite|qdrant|chroma` (default: `sqlite`). Qdrant/Chroma require `ALCHEMY_RAG_STORE_URL`; optional `ALCHEMY_RAG_STORE_API_KEY` and `ALCHEMY_RAG_STORE_COLLECTION` (default: `"alchemy"`).
+- [x] **Separate embedding credentials** — `ALCHEMY_RAG_EMBED_API_KEY` and `ALCHEMY_RAG_EMBED_BASE_URL` configure the embedding provider independently of the chat provider (both fall back to the chat values). The chat `ALCHEMY_BASE_URL` no longer leaks into embedding calls, and a warning is logged when the embed provider differs from the chat provider without a dedicated key.
+- [x] **OpenRouter embedding model IDs** — OpenRouter requires namespaced IDs, so the default embed model is `openai/text-embedding-3-small` rather than the bare OpenAI name.
+- [x] **Per-model embedding dimensions** — `embed_dimensions_for_model` resolves vector width from the model name (1536/3072/1024/768/384), falling back to the provider default for unknown models; `ALCHEMY_RAG_DIMENSIONS` overrides.
 
 ## TUI Mode
 

@@ -81,7 +81,10 @@ impl Provider for OpenAiProvider {
 
     fn default_embed_model(&self) -> &str {
         match self.variant.as_str() {
-            "openai" | "github-copilot" | "openrouter" => "text-embedding-3-small",
+            // OpenRouter model IDs are namespaced (`<vendor>/<model>`); a bare
+            // "text-embedding-3-small" is not a valid OpenRouter model ID.
+            "openrouter" => "openai/text-embedding-3-small",
+            "openai" | "github-copilot" => "text-embedding-3-small",
             "ollama" => "nomic-embed-text",
             _ => "",
         }
@@ -89,10 +92,21 @@ impl Provider for OpenAiProvider {
 
     fn embed_dimensions(&self) -> usize {
         match self.variant.as_str() {
-            "openai" | "github-copilot" | "openrouter" => 1536,
+            "openai" | "github-copilot" => 1536,
+            // OpenRouter proxies many embedding models with differing widths;
+            // this is only the default-model fallback. See
+            // `embed_dimensions_for_model` for per-model resolution.
+            "openrouter" => 1536,
             "ollama" => 768,
             _ => 0,
         }
+    }
+
+    fn embed_dimensions_for_model(&self, model: Option<&str>) -> usize {
+        let Some(model) = model else {
+            return self.embed_dimensions();
+        };
+        embed_dimensions_for_model_name(model).unwrap_or_else(|| self.embed_dimensions())
     }
 
     async fn chat_streaming(
@@ -251,4 +265,76 @@ struct ToolCallAccumulator {
     id: String,
     name: String,
     arguments: String,
+}
+
+/// Known embedding widths, keyed by model name. Matches both bare names
+/// (`text-embedding-3-small`) and OpenRouter-namespaced IDs
+/// (`openai/text-embedding-3-small`), and tolerates an OpenRouter variant
+/// suffix such as `:free`.
+pub fn embed_dimensions_for_model_name(model: &str) -> Option<usize> {
+    let m = model.trim().to_ascii_lowercase();
+    let m = m.split(':').next().unwrap_or(&m);
+    // Strip a vendor namespace so `openai/x` and `x` resolve identically.
+    let bare = m.rsplit('/').next().unwrap_or(m);
+    match bare {
+        "text-embedding-3-small" | "text-embedding-ada-002" | "mistral-embed-2312" => Some(1536),
+        "text-embedding-3-large" | "gemini-embedding-001" | "gemini-embedding-2"
+        | "gemini-embedding-2-preview" => Some(3072),
+        "text-embedding-004" => Some(768),
+        "nomic-embed-text" => Some(768),
+        "bge-m3" | "bge-large-en-v1.5" | "gte-large" | "e5-large-v2"
+        | "multilingual-e5-large" => Some(1024),
+        "bge-base-en-v1.5" | "gte-base" | "e5-base-v2" | "all-mpnet-base-v2"
+        | "multi-qa-mpnet-base-dot-v1" => Some(768),
+        "all-minilm-l6-v2" | "all-minilm-l12-v2" | "paraphrase-minilm-l6-v2" => Some(384),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod embed_tests {
+    use super::*;
+
+    #[test]
+    fn openrouter_default_embed_model_is_namespaced() {
+        let p = OpenAiProvider::new(
+            "k".into(),
+            "https://openrouter.ai/api/v1".into(),
+            "openrouter".into(),
+        );
+        // A bare name is rejected by OpenRouter; the vendor prefix is required.
+        assert_eq!(p.default_embed_model(), "openai/text-embedding-3-small");
+        assert!(p.default_embed_model().contains('/'));
+    }
+
+    #[test]
+    fn openai_default_embed_model_stays_bare() {
+        let p = OpenAiProvider::new("k".into(), "https://api.openai.com/v1".into(), "openai".into());
+        assert_eq!(p.default_embed_model(), "text-embedding-3-small");
+    }
+
+    #[test]
+    fn dimensions_resolve_per_model() {
+        assert_eq!(embed_dimensions_for_model_name("openai/text-embedding-3-large"), Some(3072));
+        assert_eq!(embed_dimensions_for_model_name("text-embedding-3-large"), Some(3072));
+        assert_eq!(embed_dimensions_for_model_name("baai/bge-m3"), Some(1024));
+        assert_eq!(embed_dimensions_for_model_name("sentence-transformers/all-minilm-l6-v2"), Some(384));
+        // OpenRouter variant suffixes must not defeat the lookup.
+        assert_eq!(embed_dimensions_for_model_name("baai/bge-m3:free"), Some(1024));
+        // Case-insensitive.
+        assert_eq!(embed_dimensions_for_model_name("BAAI/BGE-M3"), Some(1024));
+        assert_eq!(embed_dimensions_for_model_name("some/unknown-model"), None);
+    }
+
+    #[test]
+    fn unknown_model_falls_back_to_provider_default() {
+        let p = OpenAiProvider::new(
+            "k".into(),
+            "https://openrouter.ai/api/v1".into(),
+            "openrouter".into(),
+        );
+        assert_eq!(p.embed_dimensions_for_model(Some("some/unknown-model")), 1536);
+        assert_eq!(p.embed_dimensions_for_model(None), 1536);
+        assert_eq!(p.embed_dimensions_for_model(Some("openai/text-embedding-3-large")), 3072);
+    }
 }

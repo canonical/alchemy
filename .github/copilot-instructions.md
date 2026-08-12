@@ -87,7 +87,7 @@ final_system = base_system_prompt + skill_context + rag_context
 
 ### RAG (`src/rag/`)
 
-Disabled by default (`ALCHEMY_RAG_ENABLED=true` to enable). Uses SQLite (bundled) with brute-force cosine similarity in Rust — `sqlite-vec` is **not yet wired in** despite the TODO. Only `openai`, `gemini`, and `ollama` providers support embeddings; using another provider requires `ALCHEMY_RAG_EMBED_PROVIDER` set explicitly or the binary exits with code 2.
+Disabled by default (`ALCHEMY_RAG_ENABLED=true` to enable). Uses bundled SQLite with a statically linked `sqlite-vec` extension (`vec0` virtual table, `distance_metric=cosine`). Embedding-capable providers are `openai`, `gemini`, `ollama`, `github-copilot`, and `openrouter`; `ALCHEMY_RAG_EMBED_PROVIDER` defaults to `ALCHEMY_PROVIDER` and only needs setting when the chat provider cannot embed (e.g. `anthropic`), otherwise the binary exits with code 2. Embedding credentials resolve from `ALCHEMY_RAG_EMBED_API_KEY` / `ALCHEMY_RAG_EMBED_BASE_URL`, independently of the chat provider.
 
 ## Key Conventions
 
@@ -116,7 +116,10 @@ Disabled by default (`ALCHEMY_RAG_ENABLED=true` to enable). Uses SQLite (bundled
 | `ALCHEMY_SKILLS_ENABLED` | — | `true` | Set `false` to disable |
 | `ALCHEMY_SKILLS_DIR` | — | `~/.alchemy/skills` | |
 | `ALCHEMY_RAG_ENABLED` | — | `false` | |
-| `ALCHEMY_RAG_EMBED_PROVIDER` | if RAG + non-embed provider | — | `openai`, `gemini`, or `ollama` |
+| `ALCHEMY_RAG_EMBED_PROVIDER` | if RAG + non-embed chat provider | same as `ALCHEMY_PROVIDER` | `openai`, `gemini`, `ollama`, `github-copilot`, `openrouter` |
+| `ALCHEMY_RAG_EMBED_API_KEY` | — | falls back to `ALCHEMY_API_KEY` | Needed when embed provider ≠ chat provider |
+| `ALCHEMY_RAG_EMBED_BASE_URL` | — | per-embed-provider | `ALCHEMY_BASE_URL` is not used for embeddings |
+| `ALCHEMY_RAG_DIMENSIONS` | — | resolved from embed model | Override embedding width |
 | `ALCHEMY_SESSION_DIR` | — | `~/.alchemy/sessions` | TUI session storage |
 | `ALCHEMY_LOG_FILE` | — | `~/.alchemy/debug.log` | TUI mode only |
 

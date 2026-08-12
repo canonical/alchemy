@@ -258,7 +258,10 @@ export ALCHEMY_MCP_CONFIG=/path/to/my-mcp.json
 |---|---|
 | `ALCHEMY_RAG_ENABLED` | `false` |
 | `ALCHEMY_RAG_EMBED_PROVIDER` | same as `ALCHEMY_PROVIDER` |
-| `ALCHEMY_RAG_EMBED_MODEL` | provider default |
+| `ALCHEMY_RAG_EMBED_MODEL` | provider default (OpenRouter: `openai/text-embedding-3-small`) |
+| `ALCHEMY_RAG_EMBED_API_KEY` | falls back to `ALCHEMY_API_KEY` |
+| `ALCHEMY_RAG_EMBED_BASE_URL` | per-embed-provider |
+| `ALCHEMY_RAG_DIMENSIONS` | resolved from embedding model |
 | `ALCHEMY_RAG_STORE_PATH` | `~/.alchemy/rag/vectors.db` |
 | `ALCHEMY_RAG_CHUNK_SIZE` | `512` |
 | `ALCHEMY_RAG_CHUNK_OVERLAP` | `64` |

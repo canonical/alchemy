@@ -309,21 +309,52 @@ async fn run_pipe(cli: Cli) -> Result<i32> {
         let chunk_overlap: usize = std::env::var("ALCHEMY_RAG_CHUNK_OVERLAP").ok().and_then(|s| s.parse().ok()).unwrap_or(64);
         let top_k: usize = std::env::var("ALCHEMY_RAG_TOP_K").ok().and_then(|s| s.parse().ok()).unwrap_or(5);
 
-        let embed_prov = providers::create_provider(&embed_provider, api_key.as_deref(), base_url.as_deref())?;
+        // The embedding provider is configured independently of the chat provider:
+        // its own key and base URL, falling back to the chat ones only because a
+        // single-provider setup is the common case.
+        let embed_api_key = std::env::var("ALCHEMY_RAG_EMBED_API_KEY")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .or_else(|| api_key.clone());
+        let embed_base_url = std::env::var("ALCHEMY_RAG_EMBED_BASE_URL")
+            .ok()
+            .filter(|s| !s.is_empty());
+        let embed_model = std::env::var("ALCHEMY_RAG_EMBED_MODEL")
+            .ok()
+            .filter(|s| !s.is_empty());
+
+        if embed_provider != provider_name && embed_api_key == api_key && api_key.is_some() {
+            tracing::warn!(
+                "ALCHEMY_RAG_EMBED_PROVIDER={} differs from ALCHEMY_PROVIDER={} but no \
+                 ALCHEMY_RAG_EMBED_API_KEY is set; reusing ALCHEMY_API_KEY, which will \
+                 likely fail authentication.",
+                embed_provider,
+                provider_name
+            );
+        }
+
+        // Resolve dimensions against the embedding provider's own endpoint/key, not the
+        // chat provider's, so a custom chat ALCHEMY_BASE_URL cannot leak in here.
+        let embed_prov = providers::create_provider(
+            &embed_provider,
+            embed_api_key.as_deref(),
+            embed_base_url.as_deref(),
+        )?;
         let dimensions = std::env::var("ALCHEMY_RAG_DIMENSIONS")
             .ok()
             .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or_else(|| embed_prov.embed_dimensions());
-
-        let embed_api_key = api_key.clone();
-        let embed_base_url = std::env::var("ALCHEMY_RAG_EMBED_BASE_URL").ok();
+            .unwrap_or_else(|| {
+                embed_prov.embed_dimensions_for_model(
+                    embed_model.as_deref().or_else(|| {
+                        let d = embed_prov.default_embed_model();
+                        if d.is_empty() { None } else { Some(d) }
+                    }),
+                )
+            });
 
         let rag_config = rag::RagConfig {
             embed_provider,
-            embed_model: {
-                let m = std::env::var("ALCHEMY_RAG_EMBED_MODEL").unwrap_or_default();
-                if m.is_empty() { None } else { Some(m) }
-            },
+            embed_model,
             embed_api_key,
             embed_base_url,
             chunk_size,
@@ -566,7 +597,9 @@ async fn run_rag(action: RagAction) -> Result<()> {
     let provider_name = std::env::var("ALCHEMY_PROVIDER")
         .map_err(|_| anyhow::anyhow!("ALCHEMY_PROVIDER is required"))?;
     let api_key = std::env::var("ALCHEMY_API_KEY").ok();
-    let base_url = std::env::var("ALCHEMY_BASE_URL").ok();
+    // NOTE: ALCHEMY_BASE_URL is deliberately not read here. `alchemy rag` only ever
+    // talks to the embedding endpoint, which is configured via
+    // ALCHEMY_RAG_EMBED_BASE_URL; the chat base URL must not leak into it.
 
     let embed_provider = std::env::var("ALCHEMY_RAG_EMBED_PROVIDER")
         .unwrap_or_else(|_| provider_name.clone());
@@ -586,21 +619,47 @@ async fn run_rag(action: RagAction) -> Result<()> {
     let chunk_overlap: usize = std::env::var("ALCHEMY_RAG_CHUNK_OVERLAP").ok().and_then(|s| s.parse().ok()).unwrap_or(64);
     let top_k: usize = std::env::var("ALCHEMY_RAG_TOP_K").ok().and_then(|s| s.parse().ok()).unwrap_or(5);
 
-    let embed_prov = providers::create_provider(&embed_provider, api_key.as_deref(), base_url.as_deref())?;
+    let embed_api_key = std::env::var("ALCHEMY_RAG_EMBED_API_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| api_key.clone());
+    let embed_base_url = std::env::var("ALCHEMY_RAG_EMBED_BASE_URL")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let embed_model = std::env::var("ALCHEMY_RAG_EMBED_MODEL")
+        .ok()
+        .filter(|s| !s.is_empty());
+
+    if embed_provider != provider_name && embed_api_key == api_key && api_key.is_some() {
+        tracing::warn!(
+            "ALCHEMY_RAG_EMBED_PROVIDER={} differs from ALCHEMY_PROVIDER={} but no \
+             ALCHEMY_RAG_EMBED_API_KEY is set; reusing ALCHEMY_API_KEY, which will \
+             likely fail authentication.",
+            embed_provider,
+            provider_name
+        );
+    }
+
+    let embed_prov = providers::create_provider(
+        &embed_provider,
+        embed_api_key.as_deref(),
+        embed_base_url.as_deref(),
+    )?;
     let dimensions = std::env::var("ALCHEMY_RAG_DIMENSIONS")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or_else(|| embed_prov.embed_dimensions());
-
-    let embed_api_key = api_key.clone();
-    let embed_base_url = std::env::var("ALCHEMY_RAG_EMBED_BASE_URL").ok();
+        .unwrap_or_else(|| {
+            embed_prov.embed_dimensions_for_model(
+                embed_model.as_deref().or_else(|| {
+                    let d = embed_prov.default_embed_model();
+                    if d.is_empty() { None } else { Some(d) }
+                }),
+            )
+        });
 
     let rag_config = rag::RagConfig {
         embed_provider,
-        embed_model: {
-            let m = std::env::var("ALCHEMY_RAG_EMBED_MODEL").unwrap_or_default();
-            if m.is_empty() { None } else { Some(m) }
-        },
+        embed_model,
         embed_api_key,
         embed_base_url,
         chunk_size,

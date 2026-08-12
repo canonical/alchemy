@@ -50,4 +50,4 @@ Triggered at 85% of `ALCHEMY_CONTEXT_WINDOW`. Keeps: system prompt + last 6 logi
 
 ## RAG Embedding Providers
 
-Only `openai`, `gemini`, and `ollama` support embeddings. If RAG is enabled with `anthropic`, `github-copilot`, or `openrouter`, `ALCHEMY_RAG_EMBED_PROVIDER` must be set explicitly or exit with code 2.
+Embedding-capable providers are `openai`, `gemini`, `ollama`, `github-copilot`, and `openrouter`. `ALCHEMY_RAG_EMBED_PROVIDER` defaults to `ALCHEMY_PROVIDER`, so it only needs setting when the chat provider cannot embed (e.g. `anthropic`); otherwise exit code 2. The embedding provider takes its credentials from `ALCHEMY_RAG_EMBED_API_KEY` and `ALCHEMY_RAG_EMBED_BASE_URL` (falling back to `ALCHEMY_API_KEY`; the chat `ALCHEMY_BASE_URL` is never reused). OpenRouter model IDs must be namespaced, e.g. `openai/text-embedding-3-small`.

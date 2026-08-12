@@ -125,6 +125,9 @@ All configuration via environment variables. All `ALCHEMY_*` env vars apply unif
 | `ALCHEMY_RAG_STORE_URL` | No | — | External vector DB URL (qdrant/chroma) |
 | `ALCHEMY_RAG_EMBED_PROVIDER` | No | same as `ALCHEMY_PROVIDER` | Embedding provider |
 | `ALCHEMY_RAG_EMBED_MODEL` | No | provider-specific | Embedding model |
+| `ALCHEMY_RAG_EMBED_API_KEY` | No | falls back to `ALCHEMY_API_KEY` | API key for the embedding provider. Required when `ALCHEMY_RAG_EMBED_PROVIDER` differs from `ALCHEMY_PROVIDER` |
+| `ALCHEMY_RAG_EMBED_BASE_URL` | No | per-embed-provider | Custom embedding endpoint. `ALCHEMY_BASE_URL` is **not** used for embeddings |
+| `ALCHEMY_RAG_DIMENSIONS` | No | resolved from embedding model | Override embedding width |
 | `ALCHEMY_RAG_CHUNK_SIZE` | No | `512` | Chunk size in tokens |
 | `ALCHEMY_RAG_CHUNK_OVERLAP` | No | `64` | Chunk overlap in tokens |
 | `ALCHEMY_RAG_TOP_K` | No | `5` | Number of chunks returned per retrieval |
@@ -524,9 +527,36 @@ Chunk size and overlap are configurable via `ALCHEMY_RAG_CHUNK_SIZE` (default 51
 | `gemini` | `text-embedding-004` | 768 |
 | `ollama` | `nomic-embed-text` | 768 |
 | `github-copilot` | `text-embedding-3-small` | 1536 |
-| `openrouter` | provider/model-dependent | varies |
+| `openrouter` | `openai/text-embedding-3-small` | model-dependent (see below) |
 
 Uses the same provider infrastructure as LLM calls. Embedding provider defaults to `ALCHEMY_PROVIDER` but can be overridden with `ALCHEMY_RAG_EMBED_PROVIDER`. Only `openai`, `gemini`, `ollama`, `github-copilot`, and `openrouter` support embeddings; if RAG is enabled with a non-embedding provider (e.g., `anthropic`), `ALCHEMY_RAG_EMBED_PROVIDER` must be set explicitly or Alchemy exits with code 2.
+
+#### Credentials and endpoints
+
+The embedding provider is configured independently of the chat provider:
+
+- `ALCHEMY_RAG_EMBED_API_KEY` — falls back to `ALCHEMY_API_KEY`.
+- `ALCHEMY_RAG_EMBED_BASE_URL` — the chat `ALCHEMY_BASE_URL` is never used for embeddings.
+
+Because a single-provider setup is the common case, both fall back to the chat values. When `ALCHEMY_RAG_EMBED_PROVIDER` differs from `ALCHEMY_PROVIDER` and no dedicated embed key is set, Alchemy logs a warning: reusing the chat provider's key across providers will normally fail authentication. (`ollama` is exempt in practice, as its embedder ignores the key.)
+
+When both providers are the same — e.g. `ALCHEMY_PROVIDER=openrouter` — setting `ALCHEMY_RAG_EMBED_PROVIDER` is redundant; it is inherited automatically.
+
+#### OpenRouter model IDs
+
+OpenRouter exposes `POST /api/v1/embeddings` and enumerates available models at `GET /api/v1/embeddings/models`. Model IDs are namespaced as `<vendor>/<model>`, so a bare `text-embedding-3-small` is **not** valid; the default is `openai/text-embedding-3-small`.
+
+Embedding width is resolved from the model name, with `ALCHEMY_RAG_DIMENSIONS` taking precedence and the provider default (1536) used for unrecognised models:
+
+| Model | Dimensions |
+|-------|------------|
+| `openai/text-embedding-3-small` | 1536 |
+| `openai/text-embedding-3-large` | 3072 |
+| `google/gemini-embedding-001` | 3072 |
+| `baai/bge-m3` | 1024 |
+| `nvidia/nemotron-3-embed-1b:free` | provider default |
+
+Changing the embedding model may change the vector width. On dimension change the store migrates and **existing embeddings are dropped** (chunk text is preserved); re-run `alchemy rag index`.
 
 ### Vector Store
 

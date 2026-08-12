@@ -30,7 +30,9 @@ Alchemy is a cross-platform CI/CD AI agent written in Rust. Single static binary
 
 - **No OS-specific code in core**: `#[cfg(target_os)]` is strictly banned. The *only* exceptions are terminal handling (`src/tui/`) and shell execution wrappers in `builtin.rs::execute_cmd`.
 - **Configuration**: Purely environment-variable-driven (no config files in pipe mode). `ALCHEMY_PROVIDER` is always required.
-- **RAG Embedding Requirements**: RAG is powered by bundled SQLite (brute-force cosine similarity for now). If RAG is enabled with a non-native provider (e.g., Anthropic, OpenRouter), you MUST set `ALCHEMY_RAG_EMBED_PROVIDER` to `openai`, `gemini`, or `ollama`. Otherwise, the binary exits with code 2. (Note: `sqlite-vec` must be statically linked when wired in).
+- **RAG Embedding Requirements**: RAG is powered by bundled SQLite with a statically linked `sqlite-vec` extension. Embedding-capable providers are `openai`, `gemini`, `ollama`, `github-copilot`, and `openrouter`. `ALCHEMY_RAG_EMBED_PROVIDER` defaults to `ALCHEMY_PROVIDER`, so it only needs setting when the chat provider cannot embed (e.g. `anthropic`); otherwise the binary exits with code 2.
+- **RAG embedding credentials are separate**: the embedding provider resolves its key from `ALCHEMY_RAG_EMBED_API_KEY` and its endpoint from `ALCHEMY_RAG_EMBED_BASE_URL`, each falling back to `ALCHEMY_API_KEY` / no-override. Chat's `ALCHEMY_BASE_URL` is never used for embeddings. When `ALCHEMY_RAG_EMBED_PROVIDER` differs from `ALCHEMY_PROVIDER` without a dedicated embed key, a warning is logged because reusing the chat key will usually fail auth.
+- **OpenRouter model IDs are namespaced**: OpenRouter requires `<vendor>/<model>` (e.g. `openai/text-embedding-3-small`), so the bare OpenAI-style name is invalid there. Embedding width is resolved per model, with `ALCHEMY_RAG_DIMENSIONS` overriding. Changing dimensions drops existing embeddings on migration — re-run `alchemy rag index`.
 - **TUI Logging**: In TUI mode, logs MUST go to `ALCHEMY_LOG_FILE` (`~/.alchemy/debug.log`). Writing to stderr will corrupt the ratatui display.
 - **Exit Codes**: 
   - `0`: Success

@@ -38,6 +38,13 @@ pub trait Provider: Send + Sync {
     fn embed_dimensions(&self) -> usize {
         0
     }
+    /// Embedding dimensions for a specific model, when the model is known.
+    /// Falls back to the provider-level default for unknown/unset models.
+    /// `ALCHEMY_RAG_DIMENSIONS` always overrides this.
+    fn embed_dimensions_for_model(&self, model: Option<&str>) -> usize {
+        let _ = model;
+        self.embed_dimensions()
+    }
 }
 
 pub fn create_provider(

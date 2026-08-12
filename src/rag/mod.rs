@@ -84,7 +84,10 @@ impl RagPipeline {
                 config.embed_api_key.unwrap_or_default(),
                 Some(config.embed_base_url.clone()
                     .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string())),
-                config.embed_model.clone(),
+                // OpenRouter requires namespaced model IDs, so the generic
+                // OpenAIEmbedder fallback ("text-embedding-3-small") is invalid here.
+                Some(config.embed_model.clone()
+                    .unwrap_or_else(|| "openai/text-embedding-3-small".to_string())),
             )),
             "gemini" => Box::new(embedder::GeminiEmbedder::new(
                 config.embed_api_key.unwrap_or_default(),

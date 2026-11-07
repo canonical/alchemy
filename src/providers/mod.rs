@@ -100,3 +100,89 @@ pub fn create_provider(
         _ => anyhow::bail!("Unknown provider: {}", provider_name),
     }
 }
+
+/// Accumulates raw SSE response bytes and yields complete, newline-terminated
+/// lines, decoding UTF-8 only once a full line is assembled.
+///
+/// `reqwest`'s `bytes_stream()` yields network chunks that split at arbitrary
+/// byte offsets, including the middle of a multi-byte UTF-8 character. Decoding
+/// each chunk on its own (e.g. `String::from_utf8_lossy` per chunk) replaces the
+/// split bytes on both sides with U+FFFD, corrupting any character that straddles
+/// a chunk boundary. Buffering the raw bytes and only decoding once a whole line
+/// has arrived keeps every character intact.
+#[derive(Default)]
+pub(crate) struct SseLineBuffer {
+    buf: Vec<u8>,
+}
+
+impl SseLineBuffer {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    /// Append a raw network chunk.
+    pub(crate) fn push(&mut self, chunk: &[u8]) {
+        self.buf.extend_from_slice(chunk);
+    }
+
+    /// Pop the next complete line (up to and including the next `\n`), decoded
+    /// lossily and trimmed. Returns `None` while only a partial line is buffered,
+    /// so a trailing partial line waits for more bytes instead of being decoded
+    /// (and corrupted) early.
+    pub(crate) fn next_line(&mut self) -> Option<String> {
+        let nl = self.buf.iter().position(|&b| b == b'\n')?;
+        let line: Vec<u8> = self.buf.drain(..=nl).collect();
+        // Drop the trailing '\n'; `trim` also removes any '\r' (CRLF) and spaces.
+        Some(
+            String::from_utf8_lossy(&line[..line.len() - 1])
+                .trim()
+                .to_string(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod sse_line_buffer_tests {
+    use super::SseLineBuffer;
+
+    #[test]
+    fn reassembles_two_byte_char_split_across_chunks() {
+        // "é" is 0xC3 0xA9; split the line between its two bytes.
+        let mut lines = SseLineBuffer::new();
+        lines.push(b"data: caf\xc3");
+        assert_eq!(lines.next_line(), None, "no complete line yet");
+        lines.push(b"\xa9\n");
+        assert_eq!(lines.next_line().as_deref(), Some("data: café"));
+    }
+
+    #[test]
+    fn reassembles_four_byte_emoji_split_across_three_chunks() {
+        // "😀" is 0xF0 0x9F 0x98 0x80.
+        let mut lines = SseLineBuffer::new();
+        lines.push(b"data: hi \xf0\x9f");
+        assert_eq!(lines.next_line(), None);
+        lines.push(b"\x98");
+        assert_eq!(lines.next_line(), None);
+        lines.push(b"\x80\n");
+        assert_eq!(lines.next_line().as_deref(), Some("data: hi 😀"));
+    }
+
+    #[test]
+    fn yields_multiple_lines_and_holds_partial() {
+        let mut lines = SseLineBuffer::new();
+        lines.push(b"data: one\ndata: two\ndata: thr");
+        assert_eq!(lines.next_line().as_deref(), Some("data: one"));
+        assert_eq!(lines.next_line().as_deref(), Some("data: two"));
+        assert_eq!(lines.next_line(), None);
+        lines.push(b"ee\n");
+        assert_eq!(lines.next_line().as_deref(), Some("data: three"));
+    }
+
+    #[test]
+    fn trims_crlf_and_decodes_empty_line() {
+        let mut lines = SseLineBuffer::new();
+        lines.push(b"data: x\r\n\n");
+        assert_eq!(lines.next_line().as_deref(), Some("data: x"));
+        assert_eq!(lines.next_line().as_deref(), Some(""));
+    }
+}

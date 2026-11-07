@@ -141,15 +141,13 @@ impl Provider for OpenAiProvider {
         use futures::StreamExt;
         let mut stream = resp.bytes_stream();
 
-        let mut buffer = String::new();
+        let mut lines = crate::providers::SseLineBuffer::new();
 
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            lines.push(&chunk);
 
-            while let Some(line_end) = buffer.find('\n') {
-                let line = buffer[..line_end].trim().to_string();
-                buffer = buffer[line_end + 1..].to_string();
+            while let Some(line) = lines.next_line() {
 
                 if line.is_empty() || !line.starts_with("data: ") {
                     continue;
